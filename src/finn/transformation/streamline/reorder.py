@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from copy import deepcopy
+
 import numpy as np
 import qonnx.core.data_layout as DataLayout
 import warnings
@@ -902,6 +904,111 @@ class MoveLinearPastFork(MoveOpPastFork):
 class MoveTransposePastFork(MoveOpPastFork):
     def __init__(self):
         super().__init__(["Transpose"], lambda x: {"perm": get_by_name(x.attribute, "perm").ints})
+
+
+def permute_shape(shape, perm):
+    new_shape = np.zeros(len(shape))
+    for i, p in enumerate(perm):
+        new_shape[i] = int(shape[p])
+    return [int(el) for el in new_shape]
+
+
+class MoveScalarLinearPastSplit(Transformation):
+    """
+
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.ops_to_move = ["Mul", "Add"]
+        self.fork_ops = ["Split"]
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        node_ind = 0
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type in self.fork_ops and model.is_fork_node(n):
+                
+                producer = model.find_producer(n.input[0])
+                if producer.op_type in self.ops_to_move:
+                    linear_param = model.get_initializer(producer.input[1])
+                    if np.prod(linear_param.shape) != 1:
+                        continue
+                    split_outputs = n.output
+                    for split_output_idx, old_split_output in enumerate(split_outputs):
+                        new_mul_node = deepcopy(producer)
+                        new_split_output = model.make_new_valueinfo_name()
+                        model.set_tensor_datatype(new_split_output, model.get_tensor_datatype(producer.input[0]))
+                        model.set_tensor_layout(new_split_output, model.get_tensor_layout(producer.input[0]))
+                        model.set_tensor_shape(new_split_output, model.get_tensor_shape(old_split_output))
+                        
+                        n.output[split_output_idx] = new_split_output
+                        new_mul_node.input[0] = new_split_output
+                        new_mul_node.output[0] = old_split_output
+                        
+                        graph.node.insert(node_ind, new_mul_node)
+                        node_ind += 1
+
+                    # remove the mul node
+                    n.input[0] = producer.input[0]
+                    graph.node.remove(producer)
+                    graph_modified = True
+
+
+        if graph_modified:
+            model = model.transform(SortGraph(), make_deepcopy=False, cleanup=False)
+
+        return (model, graph_modified)
+
+
+class MoveTransposePastSplit(Transformation):
+
+    def __init__(self):
+        super().__init__()
+        self.ops_to_move = ["Transpose"]
+        self.fork_ops = ["Split"]
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        node_ind = 0
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type in self.fork_ops and model.is_fork_node(n):
+                
+                producer = model.find_producer(n.input[0])
+                if producer.op_type in self.ops_to_move:
+                    initial_perm = get_by_name(producer.attribute, "perm").ints
+                    reverse_perm = np.argsort(initial_perm)
+                    split_outputs = n.output
+                    for split_output_idx, old_split_output in enumerate(split_outputs):
+                        new_trans_node = deepcopy(producer)
+                        new_split_output = model.make_new_valueinfo_name()
+                        old_split_output_shape = model.get_tensor_shape(old_split_output)
+                        model.set_tensor_datatype(new_split_output, model.get_tensor_datatype(producer.input[0]))
+                        model.set_tensor_layout(new_split_output, model.get_tensor_layout(producer.input[0]))
+                        model.set_tensor_shape(new_split_output, permute_shape(old_split_output_shape, reverse_perm))
+                        
+                        n.output[split_output_idx] = new_split_output
+                        new_trans_node.input[0] = new_split_output
+                        new_trans_node.output[0] = old_split_output
+                        
+                        graph.node.insert(node_ind, new_trans_node)
+                        node_ind += 1
+
+                    # remove the transpose node and change the split axis
+                    old_split_axis = get_by_name(n.attribute, "axis").i
+                    get_by_name(n.attribute, "axis").i = initial_perm[old_split_axis]
+                    n.input[0] = producer.input[0]
+                    graph.node.remove(producer)
+                    graph_modified = True
+
+        if graph_modified:
+            model = model.transform(SortGraph(), make_deepcopy=False, cleanup=False)
+
+        return (model, graph_modified)
 
 
 class MoveMaxPoolPastMultiThreshold(Transformation):
