@@ -909,7 +909,7 @@ class MoveTransposePastFork(MoveOpPastFork):
 def permute_shape(shape, perm):
     new_shape = np.zeros(len(shape))
     for i, p in enumerate(perm):
-        new_shape[i] = int(shape[p])
+        new_shape[i] = shape[p]
     return [int(el) for el in new_shape]
 
 
@@ -1281,13 +1281,8 @@ class MoveTransposePastScalarMul(Transformation):
 
 class MoveIdenticalOpPastJoinOp(Transformation):
     """
-    Move identical operations on different branches past the common join node.
-    This transformation assumes that the identical operations only change the
-    data layout. For linear operations, see the transformation MoveLinearPastEltwiseAdd.
-    Specifically, this transformation matches and transforms the following patterns:
-    f(x) + f(y) -> f(x + y)
-    where f(.) is currently only supporting 'Transpose', and an 'Add' node is
-    the join node.
+    Move multiple identical operations on different branches past the common join node.
+    It assumes the shape and layout to be preserved by the join op in the default move_node() method
     """
 
     def __init__(self, identical_op_list, join_node_list):
@@ -1295,59 +1290,131 @@ class MoveIdenticalOpPastJoinOp(Transformation):
         self.ops_to_move = identical_op_list
         self.join_node_op = join_node_list
 
-    def move_node(self, model, n, prod0, prod1):
+    def move_node(self, model, n, producers):
         # Found! move one of the identical_ops to output, remove the other one
-        identical_op0_in0 = prod0.input[0]
-        identical_op1_in0 = prod1.input[0]
-        add_in0 = n.input[0]
-        add_out = n.output[0]
+        identical_ops_inputs = [p.input[0] for p in producers]
+        join_in0 = n.input[0]
+        join_out = n.output[0]
 
-        # Rewire
-        n.input[0] = identical_op0_in0
-        n.input[1] = identical_op1_in0
+        # Rewire join op inputs
+        for i in range(len(n.input)):
+            n.input[i] = identical_ops_inputs[i]
 
-        # Output tensor of the join node must have the same shape as
+        # Output tensor of the join node must have the same shape and layout as
         # its input tensor (original shape is preserved)
-        new_shape = model.get_tensor_shape(identical_op0_in0)
+        new_shape = model.get_tensor_shape(identical_ops_inputs[0])
+        new_layout = model.get_tensor_layout(identical_ops_inputs[0])
 
         # Set new tensor shape
-        model.set_tensor_shape(tensor_name=add_in0, tensor_shape=new_shape)
+        model.set_tensor_shape(join_in0, new_shape)
+        model.set_tensor_layout(join_in0, new_layout)
 
-        n.output[0] = add_in0
-        prod0.input[0] = add_in0
-        prod0.output[0] = add_out
+        # Rewire join op outputs
+        n.output[0] = join_in0
+        producers[0].input[0] = join_in0
+        producers[0].output[0] = join_out
 
-        model.graph.node.remove(prod1)
+        for prod in producers[1:]:
+            model.graph.node.remove(prod)
 
     def apply(self, model):
         graph = model.graph
         graph_modified = False
         for n in graph.node:
             if n.op_type in self.join_node_op and model.is_join_node(n):
-                in0 = n.input[0]
-                in1 = n.input[1]
-                if in0 is None or in1 is None:
+                inputs = n.input
+                if None in inputs:
                     continue
 
-                prod0 = model.find_producer(in0)
-                prod1 = model.find_producer(in1)
+                producers = [model.find_producer(inp) for inp in inputs]
                 # Checks if the join node is preceded by
                 # two different, but identical operations
-                if prod0 == prod1:
-                    continue
+                # if prod0 == prod1:
+                #     continue
 
-                identical_op = prod0.op_type == prod1.op_type
+                identical_ops = True
+                op_types = [prod.op_type for prod in producers]
+                for op in op_types:
+                    if op != op_types[0]:
+                        identical_ops = False
+                        break
 
-                if identical_op and prod0.op_type in self.ops_to_move:
-                    self.move_node(model, n, prod0, prod1)
+                if identical_ops and op_types[0] in self.ops_to_move:
+                    self.move_node(model, n, producers)
                     graph_modified = True
 
         if graph_modified:
             model = model.transform(SortGraph(), make_deepcopy=False, cleanup=False)
 
         return (model, graph_modified)
+    
+
+class MoveScalarMulPastJoinConcat(MoveIdenticalOpPastJoinOp):
+    """
+    Works for channelwise concat and scalar muls,
+    assumes same mul values
+    """
+    def __init__(self):
+        super().__init__(["Mul"], ["Concat"])
+
+    def move_node(self, model, n, producers):
+        muls_inputs = [prod.input[0] for prod in producers]
+        concat_in0 = n.input[0]
+        concat_out = n.output[0]
+        # Rewire concat inputs
+        for i in range(len(n.input)):
+            n.input[i] = muls_inputs[i]
+
+        new_concat_out = concat_in0 #reuse tensor
+        # # Set tensor layout and shape of the new concatenation output
+        model.set_tensor_shape(new_concat_out, model.get_tensor_shape(concat_out))
+        model.set_tensor_layout(new_concat_out, model.get_tensor_layout(muls_inputs[0]))
+        model.set_tensor_datatype(new_concat_out, model.get_tensor_datatype(muls_inputs[0]))
+
+        # Rewire concat output
+        n.output[0] = new_concat_out
+        producers[0].input[0] = new_concat_out
+        producers[0].output[0] = concat_out
+
+        for prod in producers[1:]:
+            model.graph.node.remove(prod)
 
 
 class MoveTransposePastJoinAdd(MoveIdenticalOpPastJoinOp):
     def __init__(self):
         super().__init__(["Transpose"], ["Add"])
+
+        
+class MoveTransposePastJoinConcat(MoveIdenticalOpPastJoinOp):
+    """
+    """
+    def __init__(self):
+        super().__init__(["Transpose"], ["Concat"])
+
+    def move_node(self, model, n, producers):
+        trans_inputs = [prod.input[0] for prod in producers]
+        concat_in0 = n.input[0]
+        concat_out = n.output[0]
+        # Rewire concat inputs
+        for i in range(len(n.input)):
+            n.input[i] = trans_inputs[i]
+
+        new_concat_out = concat_in0 #reuse tensor
+        # reverse the permutation of the concat output
+        transpose_perm = get_by_name(producers[0].attribute, "perm").ints
+        reverse_perm = np.argsort(transpose_perm)
+        new_concat_out_shape = permute_shape(model.get_tensor_shape(concat_out), reverse_perm)
+        # Set tensor layout and shape of the new concatenation output
+        model.set_tensor_shape(new_concat_out, new_concat_out_shape)
+        model.set_tensor_layout(new_concat_out, model.get_tensor_layout(trans_inputs[0]))
+        # Change concatenation axis
+        old_concat_axis = get_by_name(n.attribute, "axis").i
+        get_by_name(n.attribute, "axis").i = transpose_perm[old_concat_axis]
+
+        # Rewire concat output
+        n.output[0] = new_concat_out
+        producers[0].input[0] = new_concat_out
+        producers[0].output[0] = concat_out
+
+        for prod in producers[1:]:
+            model.graph.node.remove(prod)
