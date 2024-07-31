@@ -90,7 +90,7 @@ class StreamingConcat(HWCustomOp):
         simd = self.get_nodeattr("SIMD")
         folds = total_elems // simd
         vecs = list(self.get_nodeattr("numInputVectors"))
-        return tuple(vecs, [folds, simd])
+        return tuple(vecs + [folds, simd])
 
     def make_shape_compatible_op(self, model):
         # check all input shapes
@@ -148,10 +148,8 @@ class StreamingConcat(HWCustomOp):
         return odt
 
     def get_instream_width(self, ind=0):
-        elems_per_stream = self.get_nodeattr("ElemsPerStream")
-        elems = elems_per_stream[ind]
         ibits = self.get_input_datatype(ind).bitwidth()
-        return elems * ibits * self.get_nodeattr("SIMD")
+        return ibits * self.get_nodeattr("SIMD")
 
     def get_outstream_width(self, ind=0):
         obits = self.get_output_datatype().bitwidth()
