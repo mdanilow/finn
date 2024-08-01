@@ -1211,15 +1211,17 @@ class InferConcatLayer(Transformation):
                 if (axis != -1) and (axis != last_axis):
                     continue
                 # check datatype coherence
-                if all([model.get_tensor_datatype(x) is not None for x in node.input]):
+                if any([model.get_tensor_datatype(x) is None for x in node.input]):
+                    warnings.warn("Inputs with undefined datatype detected, skipping InferConcatLayer()")
                     continue
                 # skip conversion if any inputs are static
-                all_static = all([model.get_initializer(x) is None for x in node.input])
-                if not all_static:
+                any_static = any([model.get_initializer(x) is not None for x in node.input])
+                if any_static:
                     continue
                 # skip conversion if inputs are not integers
                 all_integer = all([model.get_tensor_datatype(x).is_integer() for x in node.input])
                 if not all_integer:
+                    warnings.warn("Inputs with non-integer datatype detected, skipping InferConcatLayer()")
                     continue
                 # ready for conversion
                 elems_per_stream = [model.get_tensor_shape(x)[-1] for x in node.input]
