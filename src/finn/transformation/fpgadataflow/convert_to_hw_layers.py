@@ -1211,18 +1211,15 @@ class InferConcatLayer(Transformation):
                 if (axis != -1) and (axis != last_axis):
                     continue
                 # check datatype coherence
-                dt0 = model.get_tensor_datatype(node.input[0])
-                if dt0 is None:
-                    continue
-                dt_coherent = all([model.get_tensor_datatype(x) == dt0 for x in node.input])
-                if not dt_coherent:
+                if all([model.get_initializer(x) is not None for x in node.input]):
                     continue
                 # skip conversion if any inputs are static
                 all_static = all([model.get_initializer(x) is None for x in node.input])
                 if not all_static:
                     continue
                 # skip conversion if inputs are not integers
-                if not dt0.is_integer():
+                all_integer = all([model.get_tensor_datatype(x).is_integer() for x in node.input])
+                if not all_integer:
                     continue
                 # ready for conversion
                 elems_per_stream = [model.get_tensor_shape(x)[-1] for x in node.input]
@@ -1234,8 +1231,9 @@ class InferConcatLayer(Transformation):
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                     name="Concat_" + node.name,
+                    SIMD=1,
                     ElemsPerStream=elems_per_stream,
-                    inputDataType=dt0.name,
+                    inputDataTypes=[model.get_tensor_datatype(x).name for x in node.input],
                     numInputVectors=inp_vec,
                     inFIFODepths=[2] * len(node.input),
                 )
