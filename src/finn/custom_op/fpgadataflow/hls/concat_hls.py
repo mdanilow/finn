@@ -213,7 +213,7 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
             )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<hls::vector<{}, {}>> debug_out_{} ("out_{}");'.format(
+            'hls::stream<hls::vector<{}, {}>> debug_out_{} ("debug_out_{}");'.format(
                 self.get_output_datatype().get_hls_datatype_str(),
                 simd,
                 self.hls_sname(),
