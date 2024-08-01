@@ -1211,7 +1211,7 @@ class InferConcatLayer(Transformation):
                 if (axis != -1) and (axis != last_axis):
                     continue
                 # check datatype coherence
-                if all([model.get_initializer(x) is not None for x in node.input]):
+                if all([model.get_tensor_datatype(x) is not None for x in node.input]):
                     continue
                 # skip conversion if any inputs are static
                 all_static = all([model.get_initializer(x) is None for x in node.input])
