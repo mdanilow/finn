@@ -1224,7 +1224,7 @@ class InferConcatLayer(Transformation):
                     warnings.warn("Inputs with non-integer datatype detected, skipping InferConcatLayer()")
                     continue
                 # ready for conversion
-                elems_per_stream = [model.get_tensor_shape(x)[-1] for x in node.input]
+                channels_per_stream = [model.get_tensor_shape(x)[-1] for x in node.input]
                 inp_vec = list(model.get_tensor_shape(node.input[0])[:-1])
                 new_node = helper.make_node(
                     "StreamingConcat",
@@ -1232,9 +1232,9 @@ class InferConcatLayer(Transformation):
                     node.output,
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
-                    name="Concat_" + node.name,
+                    name="StreamingConcat_" + node.name,
                     SIMD=1,
-                    ElemsPerStream=elems_per_stream,
+                    ChannelsPerStream=channels_per_stream,
                     inputDataTypes=[model.get_tensor_datatype(x).name for x in node.input],
                     numInputVectors=inp_vec,
                     inFIFODepths=[2] * len(node.input),

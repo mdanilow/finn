@@ -48,7 +48,7 @@ class StreamingConcat(HWCustomOp):
         my_attrs = {
             "SIMD": ("i", True, 0),
             # number of elements from each stream to concat
-            "ElemsPerStream": ("ints", True, []),
+            "ChannelsPerStream": ("ints", True, []),
             # FINN DataTypes for inputs; output datatype inferred from inputs
             "inputDataTypes": ("strings", True, [""]),
             # number of input vectors for non-concat axes, examples:
@@ -61,14 +61,14 @@ class StreamingConcat(HWCustomOp):
         return my_attrs
 
     def get_n_inputs(self):
-        return len(self.get_nodeattr("ElemsPerStream"))
+        return len(self.get_nodeattr("ChannelsPerStream"))
 
     def get_total_elems(self):
-        elems_per_stream = self.get_nodeattr("ElemsPerStream")
+        elems_per_stream = self.get_nodeattr("ChannelsPerStream")
         return int(np.sum(elems_per_stream))
 
     def get_normal_input_shape(self, ind=0):
-        elems_per_stream = self.get_nodeattr("ElemsPerStream")
+        elems_per_stream = self.get_nodeattr("ChannelsPerStream")
         elems = elems_per_stream[ind]
         vecs = list(self.get_nodeattr("numInputVectors"))
         ishape = tuple(vecs + [elems])
@@ -76,7 +76,7 @@ class StreamingConcat(HWCustomOp):
 
     def get_folded_input_shape(self, ind=0):
         simd = self.get_nodeattr("SIMD")
-        folds = self.get_nodeattr("ElemsPerStream")[ind] // simd
+        folds = self.get_nodeattr("ChannelsPerStream")[ind] // simd
         vecs = list(self.get_nodeattr("numInputVectors"))
         return tuple(vecs + [folds, simd])
 
