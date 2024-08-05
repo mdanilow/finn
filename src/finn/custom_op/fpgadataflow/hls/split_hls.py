@@ -1,5 +1,4 @@
-# Copyright (c) 2021, Xilinx
-# Copyright (C) 2023, Advanced Micro Devices, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -30,33 +29,33 @@
 import numpy as np
 import os
 
-from finn.custom_op.fpgadataflow.concat import StreamingConcat
+from finn.custom_op.fpgadataflow.split import StreamingSplit
 from finn.custom_op.fpgadataflow.hlsbackend import HLSBackend
 from finn.custom_op.fpgadataflow import templates
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
-class StreamingConcat_hls(StreamingConcat, HLSBackend):
-    """Streaming concatenation node with dynamically generated HLS.
-    Only supports concatenating along the last axis."""
+class StreamingSplit_hls(StreamingSplit, HLSBackend):
+    """Streaming split node with dynamically generated HLS.
+    Only supports splitting along the last axis."""
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {}
-        my_attrs.update(StreamingConcat.get_nodeattr_types(self))
+        my_attrs.update(StreamingSplit.get_nodeattr_types(self))
         my_attrs.update(HLSBackend.get_nodeattr_types(self))
         return my_attrs
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
-        n_inps = len(self.onnx_node.input)
-        ishapes = [self.get_normal_input_shape(x) for x in range(n_inps)]
-        folded_ishapes = [self.get_folded_input_shape(x) for x in range(n_inps)]
-        exp_oshape = self.get_normal_output_shape()
-        export_idts = [self.get_input_datatype(i) for i in range(n_inps)]
+        ishape = self.get_normal_input_shape()
+        folded_ishape = self.get_folded_input_shape()
+        n_outputs = self.get_n_outputs()
+        exp_oshapes = [self.get_normal_output_shape(i) for i in range(len(node.output))]
+        export_idt = self.get_input_datatype()
 
         if mode == "cppsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -70,60 +69,61 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
                 )
             )
 
-        for i in range(n_inps):
-            inp = context[node.input[i]]
-            assert str(inp.dtype) == "float32", "Input datatype is not float32"
-            assert inp.shape == ishapes[i], "Input shape mismatch for " + node.input[i]
-            # reshape input into folded form
-            inp = inp.reshape(folded_ishapes[i])
-            # make copy before saving array
-            reshaped_input = inp.copy()
-            np.save(os.path.join(code_gen_dir, "input_%d.npy" % i), reshaped_input)
+        inp = context[node.input[0]]
+        assert str(inp.dtype) == "float32", "Input datatype is not float32"
+        assert inp.shape == ishape, "Input shape mismatch for " + node.input[0]
+        # reshape input into folded form
+        inp = inp.reshape(folded_ishape)
+        # make copy before saving array
+        reshaped_input = inp.copy()
+        np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
 
         if mode == "cppsim":
             # execute the precompiled model
             super().exec_precompiled_singlenode_model()
             # load output npy file
-            super().npy_to_dynamic_output(context)
-            assert (
-                context[node.output[0]].shape == exp_oshape
-            ), "cppsim did not produce expected folded output shape. Got: {}, expected: {}".format(context[node.output[0]].shape, exp_oshape)
-            context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
+            super().npy_to_dynamic_outputs(context, ["output_%d.npy" % i for i in range(n_outputs)])
+            for i in range(n_outputs):
+                assert (
+                    context[node.output[i]].shape == exp_oshapes[i]
+                ), "cppsim did not produce expected folded output shape. Got: {}, expected: {}".format(context[node.output[i]].shape, exp_oshapes[i])
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
-            io_dict = {"inputs": {}, "outputs": {"out": []}}
-            for i in range(n_inps):
-                nbits = self.get_instream_width(i)
-                rtlsim_inp = npy_to_rtlsim_input(
-                    "%s/input_%d.npy" % (code_gen_dir, i),
-                    export_idts[i],
-                    nbits,
-                    reverse_inner=True,
-                )
-                io_dict["inputs"]["in%d" % i] = rtlsim_inp
+            io_dict = {"inputs": {}, "outputs": {}}
+
+            nbits = self.get_instream_width(i)
+            rtlsim_inp = npy_to_rtlsim_input(
+                "%s/input_0.npy" % code_gen_dir,
+                export_idt,
+                nbits,
+                # reverse_inner=True,
+            )
+            io_dict["inputs"]["in0"] = rtlsim_inp
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
 
+            for i in range(n_outputs):
+                io_dict["outputs"]["out%d" % i] = []
             self.rtlsim_multi_io(sim, io_dict)
-            rtlsim_output = io_dict["outputs"]["out"]
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
-            out_npy_path = "{}/output.npy".format(code_gen_dir)
-            out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                rtlsim_output,
-                out_npy_path,
-                odt,
-                out_shape,
-                packed_bits,
-                target_bits,
-                reverse_inner=True,
-            )
-            # load and reshape output
-            output = np.load(out_npy_path)
-            output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
-            context[node.output[0]] = output
+            for i in range(n_outputs):
+                out_npy_path = "%s/output_%d.npy" % (code_gen_dir, i)
+                out_shape = self.get_folded_output_shape()
+                rtlsim_output_to_npy(
+                    io_dict["outputs"]["out%d" % i],
+                    out_npy_path,
+                    odt,
+                    out_shape,
+                    packed_bits,
+                    target_bits,
+                    # reverse_inner=True,
+                )
+                # load and reshape output
+                output = np.load(out_npy_path)
+                output = np.asarray([output], dtype=np.float32).reshape(*exp_oshapes[i])
+                context[node.output[i]] = output
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
@@ -132,9 +132,10 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
                 )
             )
 
-        assert (
-            context[node.output[0]].shape == exp_oshape
-        ), """Output shape doesn't match expected shape."""
+        for i in range(n_outputs):
+            assert (
+                context[node.output[i]].shape == exp_oshapes[i]
+            ), "cppsim did not produce expected folded output shape. Got: {}, expected: {}".format(context[node.output[i]].shape, exp_oshapes[i])
 
     def code_generation_cppsim(self, model):
         """Generates c++ code for simulation (cppsim)."""
@@ -167,45 +168,40 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
         self.code_gen_dict.clear()
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "concat.hpp"']
+        self.code_gen_dict["$GLOBALS$"] = ['#include "split.hpp"']
 
     def defines(self, var):
-        self.code_gen_dict["$DEFINES$"] = []
+        self.code_gen_dict["$DEFINES$"] = ['#define NUM_OUTPUTS ' + str(self.get_n_outputs())]
 
     def read_npy_data(self):
-        n_inputs = self.get_n_inputs()
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         npy_type = "float"
         self.code_gen_dict["$READNPYDATA$"] = []
         simd = self.get_nodeattr("SIMD")
-        for i in range(n_inputs):
-            input_elem_hls_type = self.get_input_datatype(i).get_hls_datatype_str()
-            npy_in = "%s/input_%d.npy" % (code_gen_dir, i)
-            self.code_gen_dict["$READNPYDATA$"].append(
-                'npy2vectorstream<%s, %s, %d>("%s", in%d_%s);'
-                % (
-                    input_elem_hls_type,
-                    npy_type,
-                    simd,
-                    npy_in,
-                    i,
-                    self.hls_sname(),
-                )
+        input_elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        npy_in = "%s/input_0.npy" % code_gen_dir
+        self.code_gen_dict["$READNPYDATA$"].append(
+            'npy2vectorstream<%s, %s, %d>("%s", in0_%s);'
+            % (
+                input_elem_hls_type,
+                npy_type,
+                simd,
+                npy_in,
+                self.hls_sname(),
             )
+        )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        n_inputs = self.get_n_inputs()
         simd = self.get_nodeattr("SIMD")
-        for i in range(n_inputs):
-            input_elem_hls_type = self.get_input_datatype(i).get_hls_datatype_str()
-            stream_name = "in%d_%s" % (i, self.hls_sname())
-            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                'hls::stream<hls::vector<%s, %d>> %s ("%s");' %
-                (input_elem_hls_type, simd, stream_name, stream_name)
-            )
+        input_elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        stream_name = "in0_%s" % self.hls_sname()
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<hls::vector<{}, {}>> out_{} ("out_{}");'.format(
+            'hls::stream<hls::vector<%s, %d>> %s ("%s");' %
+            (input_elem_hls_type, simd, stream_name, stream_name)
+        )
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<hls::vector<{}, {}>> out_arr[NUM_OUTPUTS];'.format(
                 self.get_output_datatype().get_hls_datatype_str(),
                 simd,
                 self.hls_sname(),
@@ -213,7 +209,7 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
             )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<hls::vector<{}, {}>> debug_out_{} ("debug_out_{}");'.format(
+            'hls::stream<hls::vector<{}, {}>> debug_out_arr[NUM_OUTPUTS];'.format(
                 self.get_output_datatype().get_hls_datatype_str(),
                 simd,
                 self.hls_sname(),
@@ -223,34 +219,33 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = []
-        n_inputs = self.get_n_inputs()
-        input_folds = [str(self.get_folded_input_shape(i)[-2]) for i in range(n_inputs)]
-        in_streams = []
-        for i in range(n_inputs):
-            in_streams.append("in%d_%s" % (i, self.hls_sname()))
-        in_stream_names = ", ".join(in_streams)
-        in_stream_folds = ", ".join(input_folds)
-        comp_call = "StreamingConcat<{}>(out_{}, {});".format(in_stream_folds, self.hls_sname(), in_stream_names)
+        n_outputs = self.get_n_outputs()
+        output_folds = [str(self.get_folded_output_shape(i)[-2]) for i in range(n_outputs)]
+        out_stream_folds = ", ".join(output_folds)
+        comp_call = "StreamingSplit<{}>(in0_{}, out_arr);".format(out_stream_folds, self.hls_sname())
         self.code_gen_dict["$DOCOMPUTE$"] = [comp_call]
 
     def dataoutstrm(self):
         npy_type = "float"
         simd = self.get_nodeattr("SIMD")
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        oshape = self.get_folded_output_shape()
-        oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
-        npy_out = "%s/output.npy" % code_gen_dir
-        self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'vectorstream2npy<%s, %s, %d>(debug_out_%s, %s, "%s");'
-            % (
-                self.get_output_datatype().get_hls_datatype_str(),
-                npy_type,
-                simd,
-                self.hls_sname(),
-                oshape_cpp_str,
-                npy_out,
+        n_outputs = self.get_n_outputs()
+        self.code_gen_dict["$DATAOUTSTREAM$"] = []
+        for i in range(n_outputs):
+            oshape = self.get_folded_output_shape(i)
+            oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
+            npy_out = "%s/output_%d.npy" % (code_gen_dir, i)
+            self.code_gen_dict["$DATAOUTSTREAM$"].append(
+                'vectorstream2npy<%s, %s, %d>(debug_out_arr[%d], %s, "%s");'
+                % (
+                    self.get_output_datatype(i).get_hls_datatype_str(),
+                    npy_type,
+                    simd,
+                    i,
+                    oshape_cpp_str,
+                    npy_out,
+                )
             )
-        ]
 
     #TODO
     def blackboxfunction(self):
@@ -269,12 +264,27 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [blackbox_hls]
 
     def pragmas(self):
-        n_inputs = self.get_n_inputs()
         pragmas = []
-        for i in range(n_inputs):
-            pragmas.append("#pragma HLS INTERFACE axis port=in%d_%s" % (i, self.hls_sname()))
+        pragmas.append("#pragma HLS INTERFACE axis port=in0_%s" % self.hls_sname())
+        for i in range(self.get_n_outputs()):
+            pragmas.append(
+                "#pragma HLS INTERFACE axis port=out_arr[%d]" % i
+            )
+        pragmas.append("#pragma HLS INTERFACE ap_ctrl_none port=return")
         self.code_gen_dict["$PRAGMAS$"] = pragmas
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
-        )
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+
+    def timeout_condition(self):
+        condition = []
+        for i in range(self.get_n_outputs()):
+            condition.append("out_arr[{}].empty()".format(i))
+        condition = " && ".join(condition)
+        self.code_gen_dict["$TIMEOUT_CONDITION$"] = [condition]
+
+    def timeout_read_stream(self):
+        read_stream_command = """
+for(int i = 0; i < NUM_OUTPUTS; i++){
+    if(!out_arr[i].empty())
+         debug_out_arr[i] << out_arr[i].read();
+}
+"""
+        self.code_gen_dict["$TIMEOUT_READ_STREAM$"] = [read_stream_command]
