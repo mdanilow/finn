@@ -1,5 +1,4 @@
-# Copyright (c) 2021, Xilinx
-# Copyright (C) 2023, Advanced Micro Devices, Inc.
+# Copyright (C) 2024, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -51,7 +50,7 @@ class StreamingSplit(HWCustomOp):
             # number of elements of each output streams
             "ChannelsPerStream": ("ints", True, []),
             # FINN DataTypes for input; output datatypes inferred from input
-            "inputDataType": ("string", True, ""),
+            "inputDataType": ("s", True, ""),
             # number of input vectors for non-split axes, examples:
             # [1] is a single vector (like a FC layer with batch=1)
             # [4] is four vectors (like a FC layer with batch=4)
@@ -160,10 +159,10 @@ class StreamingSplit(HWCustomOp):
         in_width = self.get_instream_width()
         return roundup_to_integer_multiple(in_width, 8)
 
-    #TODO
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         sname = self.hls_sname()
-        intf_names["s_axis"] = []
-        intf_names["s_axis"].append(("in%d_%s" % (0, sname), self.get_instream_width_padded()))
+        intf_names["m_axis"] = []
+        for i in range(self.get_n_outputs()):
+            intf_names["m_axis"].append(("out%d_%s" % (i, sname), self.get_instream_width_padded()))
         return intf_names
