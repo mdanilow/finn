@@ -142,7 +142,10 @@ class StreamingSplit(HWCustomOp):
         return out_width
 
     def get_number_output_values(self):
-        return self.get_n_outputs() * np.prod(self.get_folded_output_shape()[:-1])
+        num_output_values = 0
+        for i in range(self.get_n_outputs()):
+            num_output_values += np.prod(self.get_folded_output_shape(i)[:-1])
+        return num_output_values
 
     def get_exp_cycles(self):
         return np.prod(self.get_folded_input_shape()[:-1])
