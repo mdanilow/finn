@@ -82,10 +82,13 @@ $READNPYDATA$
 
 unsigned timeout = 0;
 while(timeout < $TIMEOUT_VALUE$){
+
 $DOCOMPUTE$
+
 if($TIMEOUT_CONDITION$){
 timeout++;
 }
+
 else{
 $TIMEOUT_READ_STREAM$
 timeout = 0;
