@@ -170,7 +170,7 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
         self.code_gen_dict["$GLOBALS$"] = ['#include "concat.hpp"']
 
     def defines(self, var):
-        self.code_gen_dict["$DEFINES$"] = []
+        self.code_gen_dict["$DEFINES$"] = ["#define SIMD {}".format(self.get_nodeattr("SIMD"))]
 
     def read_npy_data(self):
         n_inputs = self.get_n_inputs()
@@ -182,11 +182,10 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
             input_elem_hls_type = self.get_input_datatype(i).get_hls_datatype_str()
             npy_in = "%s/input_%d.npy" % (code_gen_dir, i)
             self.code_gen_dict["$READNPYDATA$"].append(
-                'npy2vectorstream<%s, %s, %d>("%s", in%d_%s);'
+                'npy2vectorstream<%s, %s, SIMD>("%s", in%d_%s);'
                 % (
                     input_elem_hls_type,
                     npy_type,
-                    simd,
                     npy_in,
                     i,
                     self.hls_sname(),
@@ -196,26 +195,23 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         n_inputs = self.get_n_inputs()
-        simd = self.get_nodeattr("SIMD")
         for i in range(n_inputs):
             input_elem_hls_type = self.get_input_datatype(i).get_hls_datatype_str()
             stream_name = "in%d_%s" % (i, self.hls_sname())
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                'hls::stream<hls::vector<%s, %d>> %s ("%s");' %
-                (input_elem_hls_type, simd, stream_name, stream_name)
+                'hls::stream<hls::vector<%s, SIMD>> %s ("%s");' %
+                (input_elem_hls_type, stream_name, stream_name)
             )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<hls::vector<{}, {}>> out_{} ("out_{}");'.format(
+            'hls::stream<hls::vector<{}, SIMD>> out_{} ("out_{}");'.format(
                 self.get_output_datatype().get_hls_datatype_str(),
-                simd,
                 self.hls_sname(),
                 self.hls_sname()
             )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<hls::vector<{}, {}>> debug_out_{} ("debug_out_{}");'.format(
+            'hls::stream<hls::vector<{}, SIMD>> debug_out_{} ("debug_out_{}");'.format(
                 self.get_output_datatype().get_hls_datatype_str(),
-                simd,
                 self.hls_sname(),
                 self.hls_sname()
             )
@@ -235,34 +231,30 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
 
     def dataoutstrm(self):
         npy_type = "float"
-        simd = self.get_nodeattr("SIMD")
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         oshape = self.get_folded_output_shape()
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
         npy_out = "%s/output.npy" % code_gen_dir
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'vectorstream2npy<%s, %s, %d>(debug_out_%s, %s, "%s");'
+            'vectorstream2npy<%s, %s, SIMD>(debug_out_%s, %s, "%s");'
             % (
                 self.get_output_datatype().get_hls_datatype_str(),
                 npy_type,
-                simd,
                 self.hls_sname(),
                 oshape_cpp_str,
                 npy_out,
             )
         ]
 
-    #TODO
     def blackboxfunction(self):
         n_inputs = self.get_n_inputs()
         in_streams = []
         for i in range(n_inputs):
-            iwidth = self.get_instream_width(i)
-            in_streams.append("hls::stream<ap_uint<%d>> &in%d_%s" % (iwidth, i, self.hls_sname()))
-        in_streams = ",".join(in_streams)
-        total_width = self.get_input_datatype().bitwidth() * self.get_total_elems()
-        out_stream = "hls::stream<ap_uint<%d>> &out_%s" % (
-            total_width,
+            input_elem_hls_type = self.get_input_datatype(i).get_hls_datatype_str()
+            in_streams.append("hls::stream<hls::vector<%s, SIMD>> &in%d_%s" % (input_elem_hls_type, i, self.hls_sname()))
+        in_streams = ", ".join(in_streams)
+        out_stream = "hls::stream<hls::vector<%s, SIMD>> &out_%s" % (
+            self.get_output_datatype().get_hls_datatype_str(),
             self.hls_sname(),
         )
         blackbox_hls = "void %s(%s, %s)" % (self.onnx_node.name, in_streams, out_stream)

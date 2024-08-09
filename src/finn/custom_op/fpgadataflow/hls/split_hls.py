@@ -91,7 +91,7 @@ class StreamingSplit_hls(StreamingSplit, HLSBackend):
             sim = self.get_rtlsim()
             io_dict = {"inputs": {}, "outputs": {}}
 
-            nbits = self.get_instream_width(i)
+            nbits = self.get_instream_width()
             rtlsim_inp = npy_to_rtlsim_input(
                 "%s/input_0.npy" % code_gen_dir,
                 export_idt,
@@ -103,16 +103,16 @@ class StreamingSplit_hls(StreamingSplit, HLSBackend):
             super().toggle_clk(sim)
 
             for i in range(n_outputs):
-                io_dict["outputs"]["out%d" % i] = []
-            self.rtlsim_multi_io(sim, io_dict)
+                io_dict["outputs"]["out_arr_%d" % i] = []
+            self.rtlsim_multi_io(sim, io_dict, sname="_")
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
             for i in range(n_outputs):
                 out_npy_path = "%s/output_%d.npy" % (code_gen_dir, i)
-                out_shape = self.get_folded_output_shape()
+                out_shape = self.get_folded_output_shape(i)
                 rtlsim_output_to_npy(
-                    io_dict["outputs"]["out%d" % i],
+                    io_dict["outputs"]["out_arr_%d" % i],
                     out_npy_path,
                     odt,
                     out_shape,
@@ -181,13 +181,12 @@ class StreamingSplit_hls(StreamingSplit, HLSBackend):
         input_elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2vectorstream<%s, %s, %d>("%s", in0_%s);'
+            'npy2vectorstream<%s, %s, %d>("%s", in0);'
             % (
                 input_elem_hls_type,
                 npy_type,
                 simd,
-                npy_in,
-                self.hls_sname(),
+                npy_in
             )
         )
 
@@ -195,7 +194,7 @@ class StreamingSplit_hls(StreamingSplit, HLSBackend):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         simd = self.get_nodeattr("SIMD")
         input_elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
-        stream_name = "in0_%s" % self.hls_sname()
+        stream_name = "in0"
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<hls::vector<%s, %d>> %s ("%s");' %
             (input_elem_hls_type, simd, stream_name, stream_name)
@@ -203,17 +202,13 @@ class StreamingSplit_hls(StreamingSplit, HLSBackend):
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<hls::vector<{}, {}>> out_arr[NUM_OUTPUTS];'.format(
                 self.get_output_datatype().get_hls_datatype_str(),
-                simd,
-                self.hls_sname(),
-                self.hls_sname()
+                simd
             )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<hls::vector<{}, {}>> debug_out_arr[NUM_OUTPUTS];'.format(
                 self.get_output_datatype().get_hls_datatype_str(),
-                simd,
-                self.hls_sname(),
-                self.hls_sname()
+                simd
             )
         )
 
@@ -222,7 +217,7 @@ class StreamingSplit_hls(StreamingSplit, HLSBackend):
         n_outputs = self.get_n_outputs()
         output_folds = [str(self.get_folded_output_shape(i)[-2]) for i in range(n_outputs)]
         out_stream_folds = ", ".join(output_folds)
-        comp_call = "StreamingSplit<{}>(in0_{}, out_arr);".format(out_stream_folds, self.hls_sname())
+        comp_call = "StreamingSplit<{}>(in0, out_arr);".format(out_stream_folds)
         self.code_gen_dict["$DOCOMPUTE$"] = [comp_call]
 
     def dataoutstrm(self):
@@ -247,25 +242,20 @@ class StreamingSplit_hls(StreamingSplit, HLSBackend):
                 )
             )
 
-    #TODO
     def blackboxfunction(self):
-        n_inputs = self.get_n_inputs()
-        in_streams = []
-        for i in range(n_inputs):
-            iwidth = self.get_instream_width(i)
-            in_streams.append("hls::stream<ap_uint<%d>> &in%d_%s" % (iwidth, i, self.hls_sname()))
-        in_streams = ",".join(in_streams)
-        total_width = self.get_input_datatype().bitwidth() * self.get_total_elems()
-        out_stream = "hls::stream<ap_uint<%d>> &out_%s" % (
-            total_width,
-            self.hls_sname(),
+        input_elem_hls_type = self.get_input_datatype().get_hls_datatype_str()
+        simd = self.get_nodeattr("SIMD")
+        in_stream = "hls::stream<hls::vector<%s, %d>> &in0" % (input_elem_hls_type, simd)
+        out_streams = "hls::stream<hls::vector<%s, %d>> (&out_arr)[NUM_OUTPUTS]" % (
+            input_elem_hls_type,
+            simd
         )
-        blackbox_hls = "void %s(%s, %s)" % (self.onnx_node.name, in_streams, out_stream)
+        blackbox_hls = "void %s(%s, %s)" % (self.onnx_node.name, in_stream, out_streams)
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [blackbox_hls]
 
     def pragmas(self):
         pragmas = []
-        pragmas.append("#pragma HLS INTERFACE axis port=in0_%s" % self.hls_sname())
+        pragmas.append("#pragma HLS INTERFACE axis port=in0")
         for i in range(self.get_n_outputs()):
             pragmas.append(
                 "#pragma HLS INTERFACE axis port=out_arr[%d]" % i

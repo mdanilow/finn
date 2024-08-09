@@ -129,7 +129,7 @@ class StreamingSplit(HWCustomOp):
         return DataType[self.get_nodeattr("inputDataType")]
 
     def get_output_datatype(self, ind=0):
-        # output datatypes are all the same as the input
+        # all output datatypes are the same as the input datatype
         return self.get_input_datatype()
 
     def get_instream_width(self, ind=0):
