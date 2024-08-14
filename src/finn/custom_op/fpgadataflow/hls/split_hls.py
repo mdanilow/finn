@@ -261,6 +261,11 @@ class StreamingSplit_hls(StreamingSplit, HLSBackend):
                 "#pragma HLS INTERFACE axis port=out_arr[%d]" % i
             )
         pragmas.append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        pragmas.append("#pragma HLS aggregate variable=in0 compact=bit")
+        for i in range(self.get_n_outputs()):
+            pragmas.append(
+                "#pragma HLS aggregate variable=out_arr[%d] compact=bit" % i
+            )
         self.code_gen_dict["$PRAGMAS$"] = pragmas
 
     def timeout_condition(self):

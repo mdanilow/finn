@@ -269,4 +269,7 @@ class StreamingConcat_hls(StreamingConcat, HLSBackend):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
+        for i in range(n_inputs):
+            pragmas.append("#pragma HLS aggregate variable=in%d_%s compact=bit" % (i, self.hls_sname()))
+        pragmas.append("#pragma HLS aggregate variable=out_%s compact=bit" % self.hls_sname())
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
