@@ -593,7 +593,7 @@ class MoveLinearPastEltwiseAdd(Transformation):
                     graph_modified = True
                 else:
                     continue
-        model = model.transform(InferShapes())
+        # model = model.transform(InferShapes())
         return (model, graph_modified)
 
 
@@ -815,10 +815,9 @@ class MoveOpPastFork(Transformation):
     can be merged with nodes in the branches
     """
 
-    def __init__(self, op_name_list, get_attrs_fxn=lambda x: {}):
+    def __init__(self, op_name_list):
         super().__init__()
         self.ops_to_move = op_name_list
-        self.get_attrs_fxn = get_attrs_fxn
 
     def apply(self, model):
         graph = model.graph
@@ -861,11 +860,9 @@ class MoveOpPastFork(Transformation):
                         new_param_name = model.make_new_valueinfo_name()
                         new_inp_list = [n.input[0], new_param_name]
                         model.set_initializer(new_param_name, op_init_param)
-                    attrs = self.get_attrs_fxn(n)
-                    # TODO use copy of original node instead to get attrs?
-                    new_node = oh.make_node(
-                        n.op_type, new_inp_list, [new_output_tensor_name], **attrs
-                    )
+                    new_node = deepcopy(n)
+                    new_node.input[:] = new_inp_list
+                    new_node.output[:] = [new_output_tensor_name]
                     graph.node.insert(node_ind, new_node)
                     node_ind += 1
 
@@ -903,7 +900,7 @@ class MoveLinearPastFork(MoveOpPastFork):
 
 class MoveTransposePastFork(MoveOpPastFork):
     def __init__(self):
-        super().__init__(["Transpose"], lambda x: {"perm": get_by_name(x.attribute, "perm").ints})
+        super().__init__(["Transpose"])
 
 
 def permute_shape(shape, perm):
