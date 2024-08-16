@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import pytest
+import os
+from os.path import join
 
 from onnx import TensorProto
 from onnx import helper as oh
@@ -84,6 +86,8 @@ def create_model(perm):
 @pytest.mark.parametrize("perm", [[0, 3, 1, 2], [0, 2, 3, 1]])
 def test_move_identical_op_past_join_op(perm):
     model = create_model(perm)
+    build_dir = os.environ["FINN_BUILD_DIR"]
+    model.save(join(build_dir, "pytest_model.onnx"))
 
     # Create input data
     input0_tensor_name = model.graph.input[0].name
