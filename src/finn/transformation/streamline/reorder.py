@@ -942,7 +942,7 @@ class MoveScalarLinearPastSplit(Transformation):
                         new_mul_node = deepcopy(producer)
                         new_split_output = model.make_new_valueinfo_name()
                         model.set_tensor_datatype(new_split_output, model.get_tensor_datatype(producer.input[0]))
-                        model.set_tensor_layout(new_split_output, model.get_tensor_layout(producer.input[0]))
+                        # model.set_tensor_layout(new_split_output, model.get_tensor_layout(producer.input[0]))
                         model.set_tensor_shape(new_split_output, model.get_tensor_shape(old_split_output))
                         
                         n.output[split_output_idx] = new_split_output
@@ -989,7 +989,7 @@ class MoveTransposePastSplit(Transformation):
                         new_split_output = model.make_new_valueinfo_name()
                         old_split_output_shape = model.get_tensor_shape(old_split_output)
                         model.set_tensor_datatype(new_split_output, model.get_tensor_datatype(producer.input[0]))
-                        model.set_tensor_layout(new_split_output, model.get_tensor_layout(producer.input[0]))
+                        # model.set_tensor_layout(new_split_output, model.get_tensor_layout(producer.input[0]))
                         model.set_tensor_shape(new_split_output, permute_shape(old_split_output_shape, reverse_perm))
                         
                         n.output[split_output_idx] = new_split_output
@@ -1283,7 +1283,7 @@ class MoveTransposePastScalarMul(Transformation):
 class MoveIdenticalOpPastJoinOp(Transformation):
     """
     Move multiple identical operations on different branches past the common join node.
-    It assumes the shape and layout to be preserved by the join op in the default move_node() method
+    It assumes the shape to be preserved by the join op in the default move_node() method
     """
 
     def __init__(self, identical_op_list, join_node_list):
@@ -1299,25 +1299,27 @@ class MoveIdenticalOpPastJoinOp(Transformation):
             bool: whether moving the node was successful
         """
         identical_ops_inputs = [p.input[0] for p in producers]
-        join_in0 = n.input[0]
+        # join_in0 = n.input[0]
         join_out = n.output[0]
 
         # Rewire join op inputs
         for i in range(len(n.input)):
             n.input[i] = identical_ops_inputs[i]
 
-        # Output tensor of the join node must have the same shape and layout as
+        # Output tensor of the join node must have the same shape as
         # its input tensor (original shape is preserved)
+        new_join_output = model.make_new_valueinfo_name()
         new_shape = model.get_tensor_shape(identical_ops_inputs[0])
         new_layout = model.get_tensor_layout(identical_ops_inputs[0])
 
         # Set new tensor shape
-        model.set_tensor_shape(join_in0, new_shape)
-        model.set_tensor_layout(join_in0, new_layout)
+        model.set_tensor_shape(new_join_output, new_shape)
+        if new_layout:
+            model.set_tensor_layout(new_join_output, new_layout)
 
         # Rewire join op outputs (reuse the first join input tensor)
-        n.output[0] = join_in0
-        producers[0].input[0] = join_in0
+        n.output[0] = new_join_output
+        producers[0].input[0] = new_join_output
         producers[0].output[0] = join_out
 
         for prod in producers[1:]:
@@ -1411,20 +1413,22 @@ class MoveTransposePastJoinConcat(MoveIdenticalOpPastJoinOp):
 
     def move_node(self, model, n, producers):
         trans_inputs = [prod.input[0] for prod in producers]
-        concat_in0 = n.input[0]
+        # concat_in0 = n.input[0]
         concat_out = n.output[0]
         # Rewire concat inputs
         for i in range(len(n.input)):
             n.input[i] = trans_inputs[i]
 
-        new_concat_out = concat_in0 #reuse tensor
+        new_concat_out = model.make_new_valueinfo_name() #reuse tensor
         # reverse the permutation of the concat output
         transpose_perm = get_by_name(producers[0].attribute, "perm").ints
         reverse_perm = np.argsort(transpose_perm)
         new_concat_out_shape = permute_shape(model.get_tensor_shape(concat_out), reverse_perm)
+        new_concat_out_layout = model.get_tensor_layout(trans_inputs[0])
         # Set tensor layout and shape of the new concatenation output
         model.set_tensor_shape(new_concat_out, new_concat_out_shape)
-        model.set_tensor_layout(new_concat_out, model.get_tensor_layout(trans_inputs[0]))
+        if new_concat_out_layout:
+            model.set_tensor_layout(new_concat_out, new_concat_out_layout)
         # Change concatenation axis
         old_concat_axis = get_by_name(n.attribute, "axis").i
         get_by_name(n.attribute, "axis").i = transpose_perm[old_concat_axis]
@@ -1467,16 +1471,18 @@ class MoveScalarMulPastJoinConcat(MoveIdenticalOpPastJoinOp):
                 return False
             
         muls_inputs = [prod.input[0] for prod in producers]
-        concat_in0 = n.input[0]
+        # concat_in0 = n.input[0]
         concat_out = n.output[0]
         # Rewire concat inputs
         for i in range(len(n.input)):
             n.input[i] = muls_inputs[i]
 
-        new_concat_out = concat_in0 #reuse tensor
+        new_concat_out = model.make_new_valueinfo_name()
+        new_concat_out_layout = model.get_tensor_layout(muls_inputs[0])
         # # Set tensor layout and shape of the new concatenation output
         model.set_tensor_shape(new_concat_out, model.get_tensor_shape(concat_out))
-        model.set_tensor_layout(new_concat_out, model.get_tensor_layout(muls_inputs[0]))
+        if new_concat_out_layout:
+            model.set_tensor_layout(new_concat_out, new_concat_out_layout)
         model.set_tensor_datatype(new_concat_out, model.get_tensor_datatype(muls_inputs[0]))
 
         # Rewire concat output
