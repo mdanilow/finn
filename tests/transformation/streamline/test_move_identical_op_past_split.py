@@ -34,12 +34,14 @@ from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
+from qonnx.transformation.general import GiveUniqueNodeNames
+
 
 import finn.core.onnx_exec as oxe
-from finn.transformation.streamline.reorder import MoveTransposePastJoinConcat, MoveScalarMulPastJoinConcat, MoveScalarAddPastJoinConcat
+from finn.transformation.streamline.reorder import MoveScalarLinearPastSplit, MoveTransposePastSplit
 
 
-def create_concat_model(identical_op):
+def create_split_model(identical_op):
 
     perm = None
     if "Transpose" in identical_op:
@@ -47,81 +49,75 @@ def create_concat_model(identical_op):
         identical_op = identical_op.split("_")[0]
         perm = [int(char) for char in perm]
     if perm == [0, 2, 3, 1]:
-        in_shape1 = [1, 64, 10, 9]
-        in_shape2 = [1, 32, 10, 9]
-        out_shape1 = [1, 10, 9, 64]
-        out_shape2 = [1, 10, 9, 32]
-        out_join_shape = [1, 10, 9, 96]
-        concat_axis = 3
+        in_shape = [1, 96, 10, 9]
+        out_shape = [1, 10, 9, 96]
+        out1_split_shape = [1, 10, 9, 32]
+        out2_split_shape = [1, 10, 9, 64]
+        split_axis = 3
     elif perm == [0, 3, 1, 2]:
-        in_shape1 = [1, 10, 9, 64]
-        in_shape2 = [1, 10, 9, 32]
-        out_shape1 = [1, 64, 10, 9]
-        out_shape2 = [1, 32, 10, 9]
-        out_join_shape = [1, 96, 10, 9]
-        concat_axis = 1
+        in_shape = [1, 10, 9, 96]
+        out_shape = [1, 96, 10, 9]
+        out1_split_shape = [1, 32, 10, 9]
+        out2_split_shape = [1, 64, 10, 9]
+        split_axis = 1
     else:
-        in_shape1 = [1, 64, 10, 9]
-        in_shape2 = [1, 32, 10, 9]
-        out_shape1 = in_shape1
-        out_shape2 = in_shape2
-        out_join_shape = [1, 96, 10, 9]
-        concat_axis = 1
+        in_shape = [1, 96, 10, 9]
+        out_shape = in_shape
+        out1_split_shape = [1, 32, 10, 9]
+        out2_split_shape = [1, 64, 10, 9]
+        split_axis = 1
     op_value = 1.5
+    split = [32, 64]
 
-    op1_node = oh.make_node(
-        identical_op, inputs=["in1"], outputs=["op1_out"]
-    )
-
-    op2_node = oh.make_node(
-        identical_op, inputs=["in2"], outputs=["op2_out"]
+    op_node = oh.make_node(
+        identical_op, inputs=["in1"], outputs=["op_out"]
     )
 
     if identical_op == "Transpose":
         new_attr = oh.make_attribute("perm", perm)
-        op1_node.attribute.append(new_attr)
-        op2_node.attribute.append(new_attr)
+        op_node.attribute.append(new_attr)
     elif identical_op == "Mul" or identical_op == "Add":
-        op1_init = oh.make_tensor_value_info("op1_param", TensorProto.FLOAT, [1])
-        op2_init = oh.make_tensor_value_info("op2_param", TensorProto.FLOAT, [1])
-        op1_node.input.append(op1_init.name)
-        op2_node.input.append(op2_init.name)
+        op_init = oh.make_tensor_value_info("op_param", TensorProto.FLOAT, [1])
+        op_node.input.append(op_init.name)
     
-    concat_node = oh.make_node(
-        "Concat", inputs=["op1_out", "op2_out"], outputs=["out_join1"], axis=concat_axis
+    in1 = oh.make_tensor_value_info("in1", TensorProto.FLOAT, in_shape)
+    op_out = oh.make_tensor_value_info("op_out", TensorProto.FLOAT, out_shape)
+    out1_split = oh.make_tensor_value_info("out1_split", TensorProto.FLOAT, out1_split_shape)
+    out2_split = oh.make_tensor_value_info("out2_split", TensorProto.FLOAT, out2_split_shape)
+    split_init = oh.make_tensor_value_info("split", TensorProto.INT64, [2])
+    
+    split_node = oh.make_node(
+        "Split",
+        [op_out.name, split_init.name],
+        [out1_split.name, out2_split.name],
+        axis=split_axis
     )
 
-    in1 = oh.make_tensor_value_info("in1", TensorProto.FLOAT, in_shape1)
-    in2 = oh.make_tensor_value_info("in2", TensorProto.FLOAT, in_shape2)
-    op1_out = oh.make_tensor_value_info("op1_out", TensorProto.FLOAT, out_shape1)
-    op2_out = oh.make_tensor_value_info("op2_out", TensorProto.FLOAT, out_shape2)
-    out_join1 = oh.make_tensor_value_info("out_join1", TensorProto.FLOAT, out_join_shape)
-
     graph = oh.make_graph(
-        nodes=[op1_node, op2_node, concat_node],
+        nodes=[op_node, split_node],
         name="test_graph",
-        inputs=[in1, in2],
-        outputs=[out_join1],
+        inputs=[in1],
+        outputs=[out1_split, out2_split],
         value_info=[
-            op1_out,
-            op2_out,
+            op_out
         ],
     )
 
-    onnx_model = qonnx_make_model(graph, producer_name="test_model")
-    model = ModelWrapper(onnx_model)
+    model = oh.make_model(graph)
+    model = ModelWrapper(model)
+    model.set_initializer(split_init.name, np.array(split, dtype=np.int64))
     if identical_op == "Mul" or identical_op == "Add":
-        model.set_initializer("op1_param", np.array(op_value).astype(np.float32))
-        model.set_initializer("op2_param", np.array(op_value).astype(np.float32))
+        model.set_initializer(op_init.name, np.array(op_value).astype(np.float32))
+    model = model.transform(GiveUniqueNodeNames())
 
     return model
 
 
 transform_dict = {
-    "Transpose_0231": MoveTransposePastJoinConcat(),
-    "Transpose_0312": MoveTransposePastJoinConcat(),
-    "Mul": MoveScalarMulPastJoinConcat(),
-    "Add": MoveScalarAddPastJoinConcat()
+    "Transpose_0231": MoveTransposePastSplit(),
+    "Transpose_0312": MoveTransposePastSplit(),
+    "Mul": MoveScalarLinearPastSplit(),
+    "Add": MoveScalarLinearPastSplit()
 }
 
 
@@ -129,34 +125,26 @@ transform_dict = {
 # Permutation of transpose node
 @pytest.mark.parametrize("identical_op", ["Transpose_0231", "Transpose_0312", "Mul", "Add"])
 def test_move_identical_op_past_join_concat(identical_op):
-    model = create_concat_model(identical_op)
+    model = create_split_model(identical_op)
     build_dir = os.environ["FINN_BUILD_DIR"]
-    # model.save(join(build_dir, "concat_pytest_model_{}.onnx".format(identical_op)))
+    model.save(join(build_dir, "split_pytest_model_{}.onnx".format(identical_op)))
 
     # Create input data
     input0_tensor_name = model.graph.input[0].name
-    input1_tensor_name = model.graph.input[1].name
 
     # Note: it is assumed that both tensors have the same shape and data type
     input_dict = {}
     input_dict[input0_tensor_name] = gen_finn_dt_tensor(model.get_tensor_datatype(input0_tensor_name),
                                                         model.get_tensor_shape(input0_tensor_name))
-    input_dict[input1_tensor_name] = gen_finn_dt_tensor(model.get_tensor_datatype(input1_tensor_name),
-                                                        model.get_tensor_shape(input1_tensor_name))
-
+   
     model_transformed = model.transform(transform_dict[identical_op])
-    # model_transformed.save(join(build_dir, "concat_pytest_model_{}_trans.onnx".format(identical_op)))
+    model_transformed.save(join(build_dir, "split_pytest_model_{}_trans.onnx".format(identical_op)))
 
     assert oxe.compare_execution(model, model_transformed, input_dict)
 
     # Check if order changed
     node0_input0_model = model.find_consumers(model.graph.input[0].name)[0].op_type
-    node1_input1_model = model.find_consumers(model.graph.input[1].name)[0].op_type
     node0_input0_model_transformed = model_transformed.find_consumers(
         model_transformed.graph.input[0].name
     )[0].op_type
-    node1_input1_model_transformed = model_transformed.find_consumers(
-        model_transformed.graph.input[1].name
-    )[0].op_type
     assert node0_input0_model != node0_input0_model_transformed
-    assert node1_input1_model != node1_input1_model_transformed

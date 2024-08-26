@@ -926,10 +926,10 @@ class MoveScalarLinearPastSplit(Transformation):
         node_ind = 0
         for n in graph.node:
             node_ind += 1
-            if n.op_type in self.fork_ops and model.is_fork_node(n):
-                
+            # if n.op_type in self.fork_ops and model.is_fork_node(n):
+            if n.op_type in self.fork_ops:
                 producer = model.find_producer(n.input[0])
-                if producer.op_type in self.ops_to_move:
+                if producer is not None and producer.op_type in self.ops_to_move:
                     linear_param = model.get_initializer(producer.input[1])
                     # Check if single input
                     if len(producer.input) != 2 or linear_param is None:
@@ -977,10 +977,10 @@ class MoveTransposePastSplit(Transformation):
         node_ind = 0
         for n in graph.node:
             node_ind += 1
-            if n.op_type in self.fork_ops and model.is_fork_node(n):
-                
+            # if n.op_type in self.fork_ops and model.is_fork_node(n):
+            if n.op_type in self.fork_ops:
                 producer = model.find_producer(n.input[0])
-                if producer.op_type in self.ops_to_move:
+                if producer is not None and producer.op_type in self.ops_to_move:
                     initial_perm = get_by_name(producer.attribute, "perm").ints
                     reverse_perm = np.argsort(initial_perm)
                     split_outputs = n.output
@@ -1329,6 +1329,7 @@ class MoveIdenticalOpPastJoinOp(Transformation):
     
     def are_producers_identical(self, model, producers):
         """
+        Checks only op_types
         Should be overwritten for additional checks
         """
         op_types = [prod.op_type for prod in producers]
@@ -1395,6 +1396,31 @@ class MoveMulPastJoinAdd(MoveIdenticalOpPastJoinOp):
         for producer in producers:
             if first_mul != model.get_initializer(producer.input[1]):
                 return False
+        return True
+
+
+class MoveAddPastJoinAdd(MoveIdenticalOpPastJoinOp):
+    def __init__(self):
+        super().__init__(["Add"], ["Add"])
+
+    def are_producers_identical(self, model, producers):
+        if not super().are_producers_identical(model, producers):
+            return False
+        for producer in producers:
+            if model.get_initializer(producer.input[1]) is None:
+                return False
+        return True
+
+    def move_node(self, model, n, producers):
+        '''
+        We assume the base move_node method to move the first producer
+        past the join node (and delete the rest)
+        '''
+        add_inits = [model.get_initializer(producer.input[1]) for producer in producers]
+        new_init = np.sum(add_inits)
+        model.set_initializer(producers[0].input[1], new_init)
+        super().move_node(model, n, producers)
+
         return True
 
         
