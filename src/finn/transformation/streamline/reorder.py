@@ -1444,12 +1444,12 @@ class MoveTransposePastJoinConcat(MoveIdenticalOpPastJoinOp):
         return True
 
 
-class MoveScalarMulPastJoinConcat(MoveIdenticalOpPastJoinOp):
+class MoveScalarLinearPastJoinConcat(MoveIdenticalOpPastJoinOp):
     """
-    Applies to scalar muls with the same mul value
+    Applies to scalar linear op with the same parameter value
     """
-    def __init__(self):
-        super().__init__(["Mul"], ["Concat"])
+    def __init__(self, linear_ops=["Mul", "Add"]):
+        super().__init__(linear_ops, ["Concat"])
 
     def are_producers_identical(self, model, producers):
         if not super().are_producers_identical(model, producers):
@@ -1467,7 +1467,7 @@ class MoveScalarMulPastJoinConcat(MoveIdenticalOpPastJoinOp):
         for producer in producers:
             producer_init = model.get_initializer(producer.input[1])
             if len(producer.input) != 2 or producer_init is None or np.prod(producer_init.shape) != 1:
-                warnings.warn("Producer found that is not single-input-single-output or not scalar, skipping")
+                warnings.warn("Producer found that is not single-input or not scalar, skipping")
                 return False
             
         muls_inputs = [prod.input[0] for prod in producers]
@@ -1494,3 +1494,15 @@ class MoveScalarMulPastJoinConcat(MoveIdenticalOpPastJoinOp):
             model.graph.node.remove(prod)
 
         return True
+
+
+class MoveScalarMulPastJoinConcat(MoveScalarLinearPastJoinConcat):
+
+    def __init__(self):
+        super().__init__(["Mul"])
+
+
+class MoveScalarAddPastJoinConcat(MoveScalarLinearPastJoinConcat):
+
+    def __init__(self):
+        super().__init__(["Add"])
