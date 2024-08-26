@@ -126,8 +126,8 @@ transform_dict = {
 @pytest.mark.parametrize("identical_op", ["Transpose_0231", "Transpose_0312", "Mul", "Add"])
 def test_move_identical_op_past_join_concat(identical_op):
     model = create_split_model(identical_op)
-    build_dir = os.environ["FINN_BUILD_DIR"]
-    model.save(join(build_dir, "split_pytest_model_{}.onnx".format(identical_op)))
+    # build_dir = os.environ["FINN_BUILD_DIR"]
+    # model.save(join(build_dir, "split_pytest_model_{}.onnx".format(identical_op)))
 
     # Create input data
     input0_tensor_name = model.graph.input[0].name
@@ -138,7 +138,7 @@ def test_move_identical_op_past_join_concat(identical_op):
                                                         model.get_tensor_shape(input0_tensor_name))
    
     model_transformed = model.transform(transform_dict[identical_op])
-    model_transformed.save(join(build_dir, "split_pytest_model_{}_trans.onnx".format(identical_op)))
+    # model_transformed.save(join(build_dir, "split_pytest_model_{}_trans.onnx".format(identical_op)))
 
     assert oxe.compare_execution(model, model_transformed, input_dict)
 

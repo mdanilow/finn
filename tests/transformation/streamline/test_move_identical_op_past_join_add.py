@@ -118,7 +118,7 @@ transform_dict = {
 @pytest.mark.parametrize("identical_op", ["Transpose_0231", "Transpose_0312", "Mul", "Add"])
 def test_move_identical_op_past_join_op(identical_op):
     model = create_add_model(identical_op)
-    build_dir = os.environ["FINN_BUILD_DIR"]
+    # build_dir = os.environ["FINN_BUILD_DIR"]
     # model.save(join(build_dir, "add_pytest_model_{}.onnx".format(identical_op)))
 
     # Create input data
