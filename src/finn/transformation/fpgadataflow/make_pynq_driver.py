@@ -52,7 +52,7 @@ def to_external_tensor(init, w_dtype):
     external parameter tensor."""
 
     weight_width = init.shape[1] * w_dtype.bitwidth()
-    weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
+    weight_width_padded = roundup_to_integer_multiple(weight_width, 8)
     hex_init = pack_innermost_dim_as_hex_string(init, w_dtype, weight_width_padded, prefix="0x")
     ext_weight = np.array([], dtype=np.uint8)
     for line in hex_init:
