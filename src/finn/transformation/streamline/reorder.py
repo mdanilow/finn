@@ -643,6 +643,10 @@ class MoveScalarLinearPastInvariants(Transformation):
                     # if initializer is not scalar, skip
                     if np.prod(init0.shape) != 1:
                         continue
+                    if model.is_fork_node(prod0):
+                        model = model.transform(MoveOpPastFork(prod0.op_type))
+                        # topology modified, "ask" ModelWrapper to apply this transform again
+                        return (model, True)
                     # Flatten input if required
                     if len(init0.shape) > 0:
                         init0 = init0.flatten()[0]
@@ -715,6 +719,11 @@ class MakeMaxPoolNHWC(Transformation):
                 elif producer is not None and producer.op_type == "Transpose":
                     perms = list(get_by_name(producer.attribute, "perm").ints)
                     if perms == [0, 3, 1, 2]:
+                        # check if the producer is a fork node (need to move it past the fork before this transform)
+                        if model.is_fork_node(producer):
+                            model = model.transform(MoveTransposePastFork())
+                            # topology modified, "ask" ModelWrapper to apply this transform again
+                            return (model, True)
                         ceil_mode = get_by_name(n.attribute, "ceil_mode")
                         if ceil_mode is not None:
                             ceil_mode = ceil_mode.i
@@ -766,6 +775,11 @@ class MakeScaleResizeNHWC(Transformation):
                 if producer is not None and producer.op_type == "Transpose":
                     perms = list(get_by_name(producer.attribute, "perm").ints)
                     if perms == [0, 3, 1, 2]:
+                        # check if the producer is a fork node (need to move it past the fork before this transform)
+                        if model.is_fork_node(producer):
+                            model = model.transform(MoveTransposePastFork())
+                            # topology modified, "ask" ModelWrapper to apply this transform again
+                            return (model, True)
                         old_value = model.get_initializer(n.input[scales_ind])
                         new_value = np.array(
                             [old_value[idx] for idx in (0, 2, 3, 1)],
