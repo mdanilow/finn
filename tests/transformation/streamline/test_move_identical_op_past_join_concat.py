@@ -36,16 +36,20 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
-from finn.transformation.streamline.reorder import MoveTransposePastJoinConcat, MoveScalarMulPastJoinConcat, MoveScalarAddPastJoinConcat
+from finn.transformation.streamline.reorder import MoveTransposePastJoinConcat, MoveMulPastJoinConcat, MoveAddPastJoinConcat
 
 
 def create_concat_model(identical_op):
 
     perm = None
+    channelwise = False
     if "Transpose" in identical_op:
         perm = identical_op.split("_")[1]
         identical_op = identical_op.split("_")[0]
         perm = [int(char) for char in perm]
+    if "channelwise" in identical_op:
+        channelwise = True
+        identical_op = identical_op.split("_")[0]
     if perm == [0, 2, 3, 1]:
         in_shape1 = [1, 64, 10, 9]
         in_shape2 = [1, 32, 10, 9]
@@ -67,8 +71,17 @@ def create_concat_model(identical_op):
         out_shape2 = in_shape2
         out_join_shape = [1, 96, 10, 9]
         concat_axis = 1
-    op_value = 1.5
-
+        if channelwise:
+            op1_param_shape = [1, 64, 1, 1]
+            op2_param_shape = [1, 32, 1, 1]
+            op1_param = np.ones((1, 64, 1, 1)) * 2
+            op2_param = np.ones((1, 32, 1, 1)) * 3
+        else:
+            op1_param_shape = [1]
+            op2_param_shape = [1]
+            op1_param = 1.5
+            op2_param = 1.5
+    
     op1_node = oh.make_node(
         identical_op, inputs=["in1"], outputs=["op1_out"]
     )
@@ -82,8 +95,8 @@ def create_concat_model(identical_op):
         op1_node.attribute.append(new_attr)
         op2_node.attribute.append(new_attr)
     elif identical_op == "Mul" or identical_op == "Add":
-        op1_init = oh.make_tensor_value_info("op1_param", TensorProto.FLOAT, [1])
-        op2_init = oh.make_tensor_value_info("op2_param", TensorProto.FLOAT, [1])
+        op1_init = oh.make_tensor_value_info("op1_param", TensorProto.FLOAT, op1_param_shape)
+        op2_init = oh.make_tensor_value_info("op2_param", TensorProto.FLOAT, op2_param_shape)
         op1_node.input.append(op1_init.name)
         op2_node.input.append(op2_init.name)
     
@@ -111,8 +124,8 @@ def create_concat_model(identical_op):
     onnx_model = qonnx_make_model(graph, producer_name="test_model")
     model = ModelWrapper(onnx_model)
     if identical_op == "Mul" or identical_op == "Add":
-        model.set_initializer("op1_param", np.array(op_value).astype(np.float32))
-        model.set_initializer("op2_param", np.array(op_value).astype(np.float32))
+        model.set_initializer("op1_param", np.array(op1_param).astype(np.float32))
+        model.set_initializer("op2_param", np.array(op2_param).astype(np.float32))
 
     return model
 
@@ -120,18 +133,20 @@ def create_concat_model(identical_op):
 transform_dict = {
     "Transpose_0231": MoveTransposePastJoinConcat(),
     "Transpose_0312": MoveTransposePastJoinConcat(),
-    "Mul": MoveScalarMulPastJoinConcat(),
-    "Add": MoveScalarAddPastJoinConcat()
+    "Mul": MoveMulPastJoinConcat(),
+    "Mul_channelwise": MoveMulPastJoinConcat(),
+    "Add": MoveAddPastJoinConcat(),
+    "Add_channelwise": MoveAddPastJoinConcat()
 }
 
 
 @pytest.mark.streamline
 # Permutation of transpose node
-@pytest.mark.parametrize("identical_op", ["Transpose_0231", "Transpose_0312", "Mul", "Add"])
+@pytest.mark.parametrize("identical_op", ["Transpose_0231", "Transpose_0312", "Mul", "Add", "Mul_channelwise", "Add_channelwise"])
 def test_move_identical_op_past_join_concat(identical_op):
     model = create_concat_model(identical_op)
-    # build_dir = os.environ["FINN_BUILD_DIR"]
-    # model.save(join(build_dir, "concat_pytest_model_{}.onnx".format(identical_op)))
+    build_dir = os.environ["FINN_BUILD_DIR"]
+    model.save(join(build_dir, "concat_pytest_model_{}.onnx".format(identical_op)))
 
     # Create input data
     input0_tensor_name = model.graph.input[0].name
@@ -145,7 +160,7 @@ def test_move_identical_op_past_join_concat(identical_op):
                                                         model.get_tensor_shape(input1_tensor_name))
 
     model_transformed = model.transform(transform_dict[identical_op])
-    # model_transformed.save(join(build_dir, "concat_pytest_model_{}_trans.onnx".format(identical_op)))
+    model_transformed.save(join(build_dir, "concat_pytest_model_{}_trans.onnx".format(identical_op)))
 
     assert oxe.compare_execution(model, model_transformed, input_dict)
 

@@ -1484,46 +1484,68 @@ class MoveTransposePastJoinConcat(MoveIdenticalOpPastJoinOp):
         return True
 
 
-class MoveScalarLinearPastJoinConcat(MoveIdenticalOpPastJoinOp):
+class MoveAffinePastJoinConcat(MoveIdenticalOpPastJoinOp):
     """
-    Applies to scalar linear op with the same parameter value
+    Applies to scalar linear or channelwise affine ops with the same parameter value
     """
     def __init__(self, linear_ops=["Mul", "Add"]):
         super().__init__(linear_ops, ["Concat"])
 
-    def are_producers_identical(self, model, producers):
-        if not super().are_producers_identical(model, producers):
-            return False
-        first_mul = model.get_initializer(producers[0].input[1])
-        if first_mul is None:
-            return False
+    def are_producers_identical_scalar_ops(self, model, producers):
+        first_param = model.get_initializer(producers[0].input[1])
         for producer in producers:
-            if first_mul != model.get_initializer(producer.input[1]):
+            producer_param = model.get_initializer(producer.input[1])
+            if (first_param != producer_param).any() or np.prod(producer_param.shape) != 1:
                 return False
+        
+        return True
+            
+    def are_producers_channelwise_ops(self, channel_dim, model, producers):
+        for producer in producers:
+            producer_input = producer.input[0]
+            num_channels = model.get_tensor_shape(producer_input)[channel_dim]
+            producer_param = model.get_initializer(producer.input[1])
+            if len(producer_param.shape) < channel_dim or producer_param.shape[channel_dim] != num_channels:
+                return False
+            
         return True
 
     def move_node(self, model, n, producers):
-        # check if single input scalar muls
+        # check if single input
         for producer in producers:
             producer_init = model.get_initializer(producer.input[1])
-            if len(producer.input) != 2 or producer_init is None or np.prod(producer_init.shape) != 1:
-                warnings.warn("Producer found that is not single-input or not scalar, skipping")
+            if len(producer.input) != 2 or producer_init is None:
+                warnings.warn("Producer found that is not single-input, skipping")
                 return False
             
-        muls_inputs = [prod.input[0] for prod in producers]
-        # concat_in0 = n.input[0]
-        concat_out = n.output[0]
-        # Rewire concat inputs
-        for i in range(len(n.input)):
-            n.input[i] = muls_inputs[i]
+        # decide if producers are identical scalar ops or channelwise ops
+        channelwise_op = False
+        identical_scalar_op = self.are_producers_identical_scalar_ops(model, producers)
+        if not identical_scalar_op:
+            channel_dim = get_by_name(n.attribute, "axis").i
+            channelwise_op = self.are_producers_channelwise_ops(channel_dim, model, producers)
+            if not channelwise_op:
+                warnings.warn("Producers are neither identical scalar ops nor channelwise ops, skipping")
+                return False
 
+        # Rewire concat inputs
+        producers_inputs = [prod.input[0] for prod in producers]
+        concat_out = n.output[0]
+        for i in range(len(n.input)):
+            n.input[i] = producers_inputs[i]
+        # Set tensor layout and shape of the new concatenation output
         new_concat_out = model.make_new_valueinfo_name()
-        new_concat_out_layout = model.get_tensor_layout(muls_inputs[0])
-        # # Set tensor layout and shape of the new concatenation output
+        new_concat_out_layout = model.get_tensor_layout(producers_inputs[0])
         model.set_tensor_shape(new_concat_out, model.get_tensor_shape(concat_out))
         if new_concat_out_layout:
             model.set_tensor_layout(new_concat_out, new_concat_out_layout)
-        model.set_tensor_datatype(new_concat_out, model.get_tensor_datatype(muls_inputs[0]))
+        model.set_tensor_datatype(new_concat_out, model.get_tensor_datatype(producers_inputs[0]))
+
+        if channelwise_op:
+            # concatenate op params of producers into one mul tensor
+            producers_params = [model.get_initializer(prod.input[1]) for prod in producers]
+            new_mul_tensor = np.concatenate(producers_params, axis=channel_dim)
+            model.set_initializer(producers[0].input[1], new_mul_tensor)
 
         # Rewire concat output
         n.output[0] = new_concat_out
@@ -1536,13 +1558,13 @@ class MoveScalarLinearPastJoinConcat(MoveIdenticalOpPastJoinOp):
         return True
 
 
-class MoveScalarMulPastJoinConcat(MoveScalarLinearPastJoinConcat):
+class MoveMulPastJoinConcat(MoveAffinePastJoinConcat):
 
     def __init__(self):
         super().__init__(["Mul"])
 
 
-class MoveScalarAddPastJoinConcat(MoveScalarLinearPastJoinConcat):
+class MoveAddPastJoinConcat(MoveAffinePastJoinConcat):
 
     def __init__(self):
         super().__init__(["Add"])
