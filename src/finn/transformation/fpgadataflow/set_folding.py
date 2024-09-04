@@ -115,6 +115,7 @@ class SetFolding(Transformation):
             "DownSampler_hls",
             "FMPadding_hls",
             "FMPadding_Pixel_hls",
+            "FMPadding_rtl",
             "ConvolutionInputGenerator_hls",
             "ConvolutionInputGenerator_rtl",
         ]
