@@ -78,6 +78,7 @@ def step_yolov8_convert_to_hw_layers(model: ModelWrapper, cfg: build_cfg.Dataflo
     model = model.transform(to_hw.InferConcatLayer())
     model = model.transform(to_hw.InferSplitLayer())
     model = model.transform(to_hw.InferUpsample())
+    model = model.transform(to_hw.InferDuplicateStreamsLayer()) 
     
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
