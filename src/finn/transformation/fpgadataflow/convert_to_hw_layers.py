@@ -1302,7 +1302,7 @@ class InferSplitLayer(Transformation):
                     ChannelsPerStream=channels_per_stream,
                     inputDataType=model.get_tensor_datatype(node.input[0]).name,
                     numInputVectors=inp_vec,
-                    inFIFODepths=[2] * len(node.input),
+                    outFIFODepths=[2] * len(node.output),
                 )
                 graph.node.insert(node_ind, new_node)
                 # remove old node
