@@ -72,8 +72,8 @@ def step_yolov8_convert_to_hw_layers(model: ModelWrapper, cfg: build_cfg.Dataflo
     if cfg.standalone_thresholds:
         model = model.transform(to_hw.InferThresholdingLayer())
     model = model.transform(to_hw.InferQuantizedMatrixVectorActivation())
-    model = model.transform(to_hw.InferConvInpGen())
     model = model.transform(to_hw.InferPool())
+    model = model.transform(to_hw.InferConvInpGen())
     model = model.transform(to_hw.InferAddStreamsLayer())
     model = model.transform(to_hw.InferConcatLayer())
     model = model.transform(to_hw.InferSplitLayer())
@@ -90,8 +90,8 @@ def step_yolov8_convert_to_hw_layers(model: ModelWrapper, cfg: build_cfg.Dataflo
 
 BUILD_DIR = os.environ["FINN_BUILD_DIR"]
 OUTPUT_DIR = join(BUILD_DIR, "yolov8_output_dir")
-BOARD = "ZCU104"
-model_file = "uptoc2f_quantyolov8.onnx"
+BOARD = "U250"
+model_file = "untrained_quantyolov8.onnx"
 folding_config_file = None
 specialize_layers_config_file = None
 
@@ -151,9 +151,9 @@ build_steps = [
 
 
 #Delete previous run results if exist
-if os.path.exists(OUTPUT_DIR):
-    shutil.rmtree(OUTPUT_DIR)
-    print("Previous run results deleted!")
+# if os.path.exists(OUTPUT_DIR):
+#     shutil.rmtree(OUTPUT_DIR)
+#     print("Previous run results deleted!")
 
 cfg = build.DataflowBuildConfig(
     output_dir=OUTPUT_DIR,
