@@ -71,15 +71,15 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 
 # the settings below will be taken from environment variables if available,
 # otherwise the defaults below will be used
-: ${JUPYTER_PORT=8888}
+: ${JUPYTER_PORT=1111}
 : ${JUPYTER_PASSWD_HASH=""}
-: ${NETRON_PORT=8081}
+: ${NETRON_PORT=2222}
 : ${LOCALHOST_URL="localhost"}
 : ${PYNQ_USERNAME="xilinx"}
 : ${PYNQ_PASSWORD="xilinx"}
 : ${PYNQ_BOARD="Pynq-Z1"}
 : ${PYNQ_TARGET_DIR="/home/xilinx/$DOCKER_INST_NAME"}
-: ${NUM_DEFAULT_WORKERS=4}
+: ${NUM_DEFAULT_WORKERS=8}
 : ${FINN_SSH_KEY_DIR="$SCRIPTPATH/ssh_keys"}
 : ${ALVEO_USERNAME="alveo_user"}
 : ${ALVEO_PASSWORD=""}
@@ -87,7 +87,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${ALVEO_TARGET_DIR="/tmp"}
 : ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
 : ${XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"}
-: ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
+: ${FINN_HOST_BUILD_DIR="/scratch/users/mdaniowi/build_dirs/addstreams"}
 : ${FINN_DOCKER_TAG="xilinx/finn:$(git describe --always --tags --dirty).$XRT_DEB_VERSION"}
 : ${FINN_DOCKER_PREBUILT="0"}
 : ${FINN_DOCKER_RUN_AS_ROOT="0"}
@@ -102,6 +102,10 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_SINGULARITY=""}
 : ${FINN_SKIP_XRT_DOWNLOAD=""}
 : ${FINN_XRT_PATH=""}
+# : ${FINN_XILINX_PATH="/proj/xbuilds/SWIP/2022.2_1014_8888/installs/lin64"}
+: ${FINN_XILINX_PATH="/proj/xbuilds/SWIP/2023.2_0911_1802/installs/lin64"}
+: ${FINN_XILINX_VERSION="2023.2"}
+
 
 DOCKER_INTERACTIVE=""
 
