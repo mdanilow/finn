@@ -9,7 +9,8 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.general import (
     GiveReadableTensorNames,
-    GiveUniqueNodeNames
+    GiveUniqueNodeNames,
+    ApplyConfig,
 )
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
@@ -88,11 +89,33 @@ def step_yolov8_convert_to_hw_layers(model: ModelWrapper, cfg: build_cfg.Dataflo
     return model
 
 
+def step_slr_floorplan(model: ModelWrapper, cfg: build_cfg.DataflowBuildConfig):
+    if cfg.shell_flow_type == build_cfg.ShellFlowType.VITIS_ALVEO:
+        try:
+            from finnexperimental.analysis.partitioning import partition
+
+            # default_slr = 0
+            # abs_anchors = [(0, [default_slr]), (525, [default_slr]), (637, [default_slr]), (-1, [default_slr])]
+            floorplan = partition(
+                model,
+                cfg.synth_clk_period_ns,
+                cfg.board,
+                # abs_anchors=abs_anchors,
+                multivariant=False,
+            )[0]
+            # apply floorplan to model
+            model = model.transform(ApplyConfig(floorplan))
+            print("SLR floorplanning applied")
+        except Exception:
+            print("No SLR floorplanning applied")
+    return model
+
+
 BUILD_DIR = os.environ["FINN_BUILD_DIR"]
 OUTPUT_DIR = join(BUILD_DIR, "yolov8_output_dir")
 BOARD = "U250"
 model_file = "untrained_quantyolov8.onnx"
-folding_config_file = None
+folding_config_file = "final_hw_config.json"
 specialize_layers_config_file = None
 
 # which platforms to build the networks for
@@ -107,27 +130,6 @@ def platform_to_shell(platform):
     else:
         raise Exception("Unknown platform, can't determine ShellFlowType")
 
-# default_build_dataflow_steps = [
-#     "step_qonnx_to_finn",
-#     "step_tidy_up",
-#     "step_streamline",
-#     "step_convert_to_hw",
-#     "step_create_dataflow_partition",
-#     "step_specialize_layers",
-#     "step_target_fps_parallelization",
-#     "step_apply_folding_config",
-#     "step_minimize_bit_width",
-#     "step_generate_estimate_reports",
-#     "step_hw_codegen",
-#     "step_hw_ipgen",
-#     "step_set_fifo_depths",
-#     "step_create_stitched_ip",
-#     "step_measure_rtlsim_performance",
-#     "step_out_of_context_synthesis",
-#     "step_synthesize_bitfile",
-#     "step_make_pynq_driver",
-#     "step_deployment_package",
-# ]
 
 build_steps = [
     step_yolov8_streamline,
@@ -141,19 +143,15 @@ build_steps = [
     "step_hw_codegen",
     "step_hw_ipgen",
     "step_set_fifo_depths",
-    "step_create_stitched_ip",
+    # "step_create_stitched_ip",
+    step_slr_floorplan,
     "step_measure_rtlsim_performance",
-    "step_out_of_context_synthesis",
+    # "step_out_of_context_synthesis",
     "step_synthesize_bitfile",
     "step_make_pynq_driver",
     "step_deployment_package",
 ]
 
-
-#Delete previous run results if exist
-# if os.path.exists(OUTPUT_DIR):
-#     shutil.rmtree(OUTPUT_DIR)
-#     print("Previous run results deleted!")
 
 cfg = build.DataflowBuildConfig(
     output_dir=OUTPUT_DIR,
@@ -161,8 +159,10 @@ cfg = build.DataflowBuildConfig(
     standalone_thresholds=True,
     folding_config_file=folding_config_file,
     specialize_layers_config_file=specialize_layers_config_file,
+    auto_fifo_depths=False,
+    split_large_fifos=True,
     synth_clk_period_ns=10,
-    target_fps=30,
+    # target_fps=30,
     board=BOARD,
     shell_flow_type=platform_to_shell(BOARD),
     steps=build_steps,
