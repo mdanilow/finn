@@ -64,7 +64,7 @@ def collect_ip_dirs(model, ipstitch_path):
         ), """The directory that should
         contain the generated ip blocks doesn't exist."""
         ip_dirs += [ip_dir_value]
-        if node.op_type.startswith("MVAU") or node.op_type == "Thresholding_hls":
+        if node.op_type.startswith("MVAU") or node.op_type.startswith("VVAU") or node.op_type == "Thresholding_hls":
             if node_inst.get_nodeattr("mem_mode") == "internal_decoupled":
                 need_memstreamer = True
     ip_dirs += [ipstitch_path + "/ip"]
@@ -88,13 +88,16 @@ class MakeZYNQProject(Transformation):
     value.
     """
 
-    def __init__(self, platform, enable_debug=False):
+    def __init__(self, platform, enable_debug=False, tcl_only=False):
         super().__init__()
         self.platform = platform
         self.enable_debug = 1 if enable_debug else 0
+        self.tcl_only = tcl_only
 
     def apply(self, model):
+
         # create a config file and empty list of xo files
+        INTERCONNECT_S_INTERFACES = 16
         config = []
         idma_idx = 0
         odma_idx = 0
@@ -165,8 +168,8 @@ class MakeZYNQProject(Transformation):
                 )
                 config.append(
                     "connect_bd_intf_net [get_bd_intf_pins %s/m_axi_gmem0] "
-                    "[get_bd_intf_pins smartconnect_0/S%02d_AXI]"
-                    % (instance_names[node.name], aximm_idx)
+                    "[get_bd_intf_pins axi_interconnect_%d/S%02d_AXI]"
+                    % (instance_names[node.name], 1 + aximm_idx // INTERCONNECT_S_INTERFACES, aximm_idx % INTERCONNECT_S_INTERFACES)
                 )
                 assert len(ifnames["axilite"]) == 1, "Must have 1 AXI lite interface on IODMA nodes"
                 axilite_intf_name = ifnames["axilite"][0]
@@ -205,11 +208,11 @@ class MakeZYNQProject(Transformation):
 
             config.append(
                 "connect_bd_net [get_bd_pins %s/ap_clk] "
-                "[get_bd_pins smartconnect_0/aclk]" % instance_names[node.name]
+                "[get_bd_pins axi_interconnect_0/ACLK]" % instance_names[node.name]
             )
             config.append(
                 "connect_bd_net [get_bd_pins %s/ap_rst_n] "
-                "[get_bd_pins smartconnect_0/aresetn]" % instance_names[node.name]
+                "[get_bd_pins axi_interconnect_0/ARESETN]" % instance_names[node.name]
             )
             # connect streams
             if producer is not None:
@@ -239,8 +242,7 @@ class MakeZYNQProject(Transformation):
         config = "\n".join(config) + "\n"
         with open(ipcfg, "w") as f:
             f.write(
-                templates.custom_zynq_shell_template
-                % (
+                templates.generate_zynqus_template(
                     fclk_mhz,
                     axilite_idx,
                     aximm_idx,
@@ -259,6 +261,10 @@ class MakeZYNQProject(Transformation):
             f.write("cd {}\n".format(vivado_pynq_proj_dir))
             f.write("vivado -mode batch -source %s\n" % ipcfg)
             f.write("cd {}\n".format(working_dir))
+        
+        if self.tcl_only:
+            print('Tcl script generated')
+            return (model, False)
 
         # call the synthesis script
         bash_command = ["bash", synth_project_sh]
