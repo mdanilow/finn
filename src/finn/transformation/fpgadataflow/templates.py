@@ -27,6 +27,162 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 # flake8: noqa
+import math
+
+
+def generate_zynqus_template(freq_mhz, num_axilite, num_aximm, board, fpga_part, config, debug):
+    
+    INTERCONNECT_S_INTERFACES = 16
+    num_mm_interconnects = math.ceil(num_aximm / INTERCONNECT_S_INTERFACES)
+
+    template = zynq_n_interconnect_head % (
+        freq_mhz,
+        num_axilite,
+        num_aximm,
+        board,
+        fpga_part
+    )
+
+    #activate slave ports in ps
+    for i in range(num_mm_interconnects):
+        template += 'set_property -dict [list CONFIG.PSU__USE__S_AXI_GP{} {{1}}] [get_bd_cells zynq_ps]\n'.format(i + 2)
+    
+    template += """
+#deactivate second master port
+set_property -dict [list CONFIG.PSU__USE__M_AXI_GP1 {0}] [get_bd_cells zynq_ps]
+#set frequency of PS clock (this can't always be exactly met)
+set_property -dict [list CONFIG.PSU__OVERRIDE__BASIC_CLOCK {0}] [get_bd_cells zynq_ps]
+set_property -dict [list CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ [expr int($FREQ_MHZ)]] [get_bd_cells zynq_ps]
+
+#instantiate axi interconnect
+create_bd_cell -type ip -vlnv xilinx.com:ip:axi_interconnect:2.1 axi_interconnect_0
+"""
+    for i in range(num_mm_interconnects):
+        template += 'create_bd_cell -type ip -vlnv xilinx.com:ip:axi_interconnect:2.1 axi_interconnect_{}\n'.format(i + 1)
+        template += 'set_property -dict [list CONFIG.NUM_SI {}] [get_bd_cells axi_interconnect_{}]\n'.format(INTERCONNECT_S_INTERFACES if i < num_mm_interconnects - 1 else num_aximm % INTERCONNECT_S_INTERFACES,
+                                                                                                            i + 1)
+        template += 'set_property -dict [list CONFIG.NUM_MI 1] [get_bd_cells axi_interconnect_{}]\n'.format(i + 1)
+
+    template += """
+set_property -dict [list CONFIG.NUM_MI $NUM_AXILITE] [get_bd_cells axi_interconnect_0]
+
+#connect interconnects
+set axi_peripheral_base 0xA0000000
+connect_bd_intf_net [get_bd_intf_pins zynq_ps/M_AXI_HPM0_FPD] -boundary_type upper [get_bd_intf_pins axi_interconnect_0/S00_AXI]
+apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/pl_clk0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/ACLK]
+apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/pl_clk0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/S00_ACLK]
+"""
+    for i in range(num_mm_interconnects):
+        template += 'connect_bd_intf_net [get_bd_intf_pins axi_interconnect_{}/M00_AXI] [get_bd_intf_pins zynq_ps/S_AXI_HP{}_FPD]\n'.format(i+1, i)
+        template += 'apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config {{ Clk {{/zynq_ps/pl_clk0}} Freq {{}} Ref_Clk0 {{}} Ref_Clk1 {{}} Ref_Clk2 {{}}}} [get_bd_pins axi_interconnect_{}/ACLK]\n'.format(i+1)
+        template += 'apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config {{ Clk {{/zynq_ps/pl_clk0}} Freq {{}} Ref_Clk0 {{}} Ref_Clk1 {{}} Ref_Clk2 {{}}}} [get_bd_pins axi_interconnect_{}/M00_ACLK]\n'.format(i+1)
+
+    template += """
+
+#procedure used by below IP instantiations to map BD address segments based on the axi interface aperture
+proc assign_axi_addr_proc {axi_intf_path} {
+    #global variable holds current base address
+    global axi_peripheral_base
+    #infer range
+    set range [expr 2**[get_property CONFIG.ADDR_WIDTH [get_bd_intf_pins $axi_intf_path]]]
+    set range [expr $range < 4096 ? 4096 : $range]
+    #align base address to range
+    set offset [expr ($axi_peripheral_base + ($range-1)) & ~($range-1)]
+    #perform assignment
+    assign_bd_address [get_bd_addr_segs $axi_intf_path/Reg*] -offset $offset -range $range
+    #advance base address
+    set axi_peripheral_base [expr $offset + $range]
+}
+
+#custom IP instantiations/connections start here
+%s
+
+#finalize clock and reset connections for interconnects
+apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/pl_clk0} }  [get_bd_pins axi_interconnect_0/M*_ACLK]
+""" % config
+
+    for i in range(num_mm_interconnects):
+        template += 'apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config {{ Clk {{/zynq_ps/pl_clk0}} }}  [get_bd_pins axi_interconnect_{}/S*_ACLK]\n'.format(i + 1)
+
+    template += """
+
+save_bd_design
+assign_bd_address
+validate_bd_design
+
+set_property SYNTH_CHECKPOINT_MODE "Hierarchical" [ get_files top.bd ]
+make_wrapper -files [get_files top.bd] -import -fileset sources_1 -top
+
+set_property strategy Flow_PerfOptimized_high [get_runs synth_1]
+set_property STEPS.SYNTH_DESIGN.ARGS.DIRECTIVE AlternateRoutability [get_runs synth_1]
+set_property STEPS.SYNTH_DESIGN.ARGS.RETIMING true [get_runs synth_1]
+set_property strategy Performance_ExtraTimingOpt [get_runs impl_1]
+set_property STEPS.OPT_DESIGN.ARGS.DIRECTIVE Explore [get_runs impl_1]
+set_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.ARGS.DIRECTIVE AggressiveExplore [get_runs impl_1]
+set_property STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE AggressiveExplore [get_runs impl_1]
+set_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED true [get_runs impl_1]
+
+# out-of-context synth can't be used for bitstream generation
+# set_property -name {STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS} -value {-mode out_of_context} -objects [get_runs synth_1]
+launch_runs -to_step write_bitstream impl_1
+wait_on_run [get_runs impl_1]
+
+# generate synthesis report
+open_run impl_1
+report_utilization -hierarchical -hierarchical_depth 4 -file synth_report.xml -format xml
+close_project
+"""
+
+    return template
+
+
+zynq_n_interconnect_head = """
+set FREQ_MHZ %s
+set NUM_AXILITE %d
+set NUM_AXIMM %d
+set BOARD %s
+set FPGA_PART %s
+create_project finn_zynq_link ./ -part $FPGA_PART
+
+# set board part repo paths to find PYNQ-Z1/Z2
+set paths_prop [get_property BOARD_PART_REPO_PATHS [current_project]]
+set paths_param [get_param board.repoPaths]
+lappend paths_prop $::env(FINN_ROOT)/deps/board_files
+lappend paths_param $::env(FINN_ROOT)/deps/board_files
+set_property BOARD_PART_REPO_PATHS $paths_prop [current_project]
+set_param board.repoPaths $paths_param
+
+if {$BOARD == "ZCU104"} {
+    set_property board_part xilinx.com:zcu104:part0:1.1 [current_project]
+    set ZYNQ_TYPE "zynq_us+"
+} elseif {$BOARD == "ZCU102"} {
+    set_property board_part xilinx.com:zcu102:part0:3.3 [current_project]
+    set ZYNQ_TYPE "zynq_us+"
+} elseif {$BOARD == "RFSoC2x2"} {
+    set_property board_part xilinx.com:rfsoc2x2:part0:1.1 [current_project]
+    set ZYNQ_TYPE "zynq_us+"
+} elseif {$BOARD == "Ultra96"} {
+    set_property board_part avnet.com:ultra96v1:part0:1.2 [current_project]
+    set ZYNQ_TYPE "zynq_us+"
+} elseif {$BOARD == "Pynq-Z2"} {
+    set ZYNQ_TYPE "zynq_7000"
+    set_property board_part tul.com.tw:pynq-z2:part0:1.0 [current_project]
+} elseif {$BOARD == "Pynq-Z1"} {
+    set ZYNQ_TYPE "zynq_7000"
+    set_property board_part www.digilentinc.com:pynq-z1:part0:1.0 [current_project]
+} elseif {$BOARD == "KV260_SOM"} {
+    set ZYNQ_TYPE "zynq_us+"
+    set_property board_part xilinx.com:kv260_som:part0:1.3 [current_project]
+} else {
+    puts "Unrecognized board"
+}
+
+create_bd_design "top"
+create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.4 zynq_ps
+apply_bd_automation -rule xilinx.com:bd_rule:zynq_ultra_ps_e -config {apply_board_preset "1" }  [get_bd_cells zynq_ps]
+#activate slave ports
+"""
+
 
 # template for the PYNQ shell integration configuration tcl script
 ip_config_tcl_template = """
