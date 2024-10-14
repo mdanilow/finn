@@ -56,6 +56,8 @@ def to_external_tensor(init, w_dtype):
     hex_init = pack_innermost_dim_as_hex_string(init, w_dtype, weight_width_padded, prefix="0x")
     ext_weight = np.array([], dtype=np.uint8)
     for line in hex_init:
+        if len(line) % 2 != 0:
+            line += '0'
         array_line = [x for x in reversed(hexstring2npbytearray(line, remove_prefix="0x"))]
         ext_weight = np.append(ext_weight, array_line)
 
