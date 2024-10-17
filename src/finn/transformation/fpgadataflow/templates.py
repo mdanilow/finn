@@ -178,7 +178,8 @@ if {$BOARD == "ZCU104"} {
 }
 
 create_bd_design "top"
-create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.4 zynq_ps
+set zynq_ps_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:zynq_ultra_ps_e:*"]]
+create_bd_cell -type ip -vlnv $zynq_ps_vlnv zynq_ps
 apply_bd_automation -rule xilinx.com:bd_rule:zynq_ultra_ps_e -config {apply_board_preset "1" }  [get_bd_cells zynq_ps]
 #activate slave ports
 """
