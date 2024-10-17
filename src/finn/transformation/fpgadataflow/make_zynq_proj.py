@@ -28,6 +28,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+from os.path import join
 import subprocess
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -354,6 +355,8 @@ class ZynqBuild(Transformation):
             )
             kernel_model.set_metadata_prop("platform", "zynq-iodma")
             kernel_model.save(dataflow_model_filename)
+        model.set_metadata_prop("platform", "zynq-iodma")
+        model.save(join(self.partition_model_dir, "final_model.onnx"))
         # Assemble design from IPs
         model = model.transform(MakeZYNQProject(self.platform, enable_debug=self.enable_debug))
 
