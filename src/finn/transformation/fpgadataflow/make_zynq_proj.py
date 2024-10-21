@@ -36,6 +36,7 @@ from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from shutil import copy
+import math
 
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
@@ -100,6 +101,7 @@ class MakeZYNQProject(Transformation):
         # create a config file and empty list of xo files
         INTERCONNECT_S_INTERFACES = 16
         config = []
+        ip_repo_paths = []
         idma_idx = 0
         odma_idx = 0
         aximm_idx = 0
@@ -122,15 +124,7 @@ class MakeZYNQProject(Transformation):
             if vivado_stitch_vlnv is None:
                 raise Exception("No vlnv found for %s, apply CreateStitchedIP first." % node.name)
 
-            ip_dirs = ["list"]
-            ip_dirs += collect_ip_dirs(kernel_model, ipstitch_path)
-            ip_dirs_str = "[%s]" % (" ".join(ip_dirs))
-            config.append(
-                "set_property ip_repo_paths "
-                "[concat [get_property ip_repo_paths [current_project]] %s] "
-                "[current_project]" % ip_dirs_str
-            )
-            config.append("update_ip_catalog -rebuild -scan_changes")
+            ip_repo_paths += collect_ip_dirs(kernel_model, ipstitch_path)
 
             # get metadata property clk_ns to calculate clock frequency
             clk_ns = float(kernel_model.get_metadata_prop("clk_ns"))
@@ -240,6 +234,8 @@ class MakeZYNQProject(Transformation):
 
         # create a TCL recipe for the project
         ipcfg = vivado_pynq_proj_dir + "/ip_config.tcl"
+        ip_repo_paths_cmd = "set_property ip_repo_paths {{{}}} [current_project]".format(" ".join(ip_repo_paths))
+        config = [ip_repo_paths_cmd, "update_ip_catalog -rebuild -scan_changes"] + config
         config = "\n".join(config) + "\n"
         with open(ipcfg, "w") as f:
             f.write(
