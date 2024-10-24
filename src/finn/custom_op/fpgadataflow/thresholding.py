@@ -133,8 +133,15 @@ class Thresholding(HWCustomOp):
 
     def minimize_accumulator_width(self, model):
         "Minimize threshold width ('accumulator width' here due to convention)"
+        idtype = model.get_tensor_datatype(self.onnx_node.input[0])
         thresholds = model.get_initializer(self.onnx_node.input[1])
+        # clip any large thresholds to input range + 1
+        thresholds = np.clip(thresholds, idtype.min() - 1, idtype.max() + 1)
         threshold_tensor = self.get_hw_compatible_threshold_tensor(thresholds)
+        model.set_initializer(self.onnx_node.input[1], thresholds)
+        # use same datatype as inputs for thresholds
+        model.set_tensor_datatype(self.onnx_node.input[1], idtype)
+
         min_threshold = thresholds.min()
         max_threshold = thresholds.max()
         min_input = self.get_input_datatype().min()
