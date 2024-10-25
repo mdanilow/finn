@@ -80,11 +80,11 @@ def step_yololit_convert_to_hw_layers(model: ModelWrapper, cfg: build_cfg.Datafl
 
 
 BUILD_DIR = os.environ["FINN_BUILD_DIR"]
-OUTPUT_DIR = join(BUILD_DIR, "yololit_fifosizing")
+OUTPUT_DIR = join(BUILD_DIR, "output_dir")
 BOARD = "ZCU104"
-# model_file = "yololit320.onnx"
-model_file = join(BUILD_DIR, "yolov8_output_dir", "intermediate_models", "step_yololit_convert_to_hw_layers.onnx")
-folding_config_file = None
+model_file = "yololit320.onnx"
+# model_file = join(BUILD_DIR, "output_dir", "intermediate_models", "step_apply_folding_config.onnx")
+folding_config_file = "my_folding_config.json"
 specialize_layers_config_file = None
 
 # which platforms to build the networks for
@@ -101,8 +101,8 @@ def platform_to_shell(platform):
 
 
 build_steps = [
-    # step_yololit_streamline,
-    # step_yololit_convert_to_hw_layers,
+    step_yololit_streamline,
+    step_yololit_convert_to_hw_layers,
     "step_create_dataflow_partition",
     "step_specialize_layers",
     "step_target_fps_parallelization",
@@ -112,13 +112,13 @@ build_steps = [
     "step_hw_codegen",
     "step_hw_ipgen",
     "step_set_fifo_depths",
-    # "step_create_stitched_ip",
-    # # step_slr_floorplan,
-    # "step_measure_rtlsim_performance",
-    # "step_out_of_context_synthesis",
-    # "step_synthesize_bitfile",
-    # "step_make_pynq_driver",
-    # "step_deployment_package",
+    "step_create_stitched_ip",
+    # step_slr_floorplan,
+    "step_measure_rtlsim_performance",
+    "step_out_of_context_synthesis",
+    "step_synthesize_bitfile",
+    "step_make_pynq_driver",
+    "step_deployment_package",
 ]
 
 
@@ -128,8 +128,8 @@ cfg = build.DataflowBuildConfig(
     standalone_thresholds=True,
     folding_config_file=folding_config_file,
     specialize_layers_config_file=specialize_layers_config_file,
-    auto_fifo_depths=True,
-    # split_large_fifos=True,
+    auto_fifo_depths=False,
+    split_large_fifos=True,
     synth_clk_period_ns=10,
     target_fps=90,
     board=BOARD,

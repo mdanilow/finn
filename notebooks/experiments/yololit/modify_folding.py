@@ -25,12 +25,15 @@ vva_memmode_from_idx = 0
 vva_memmode = "internal_embedded"
 
 # Thresholding
-th_depth_trigger_bram_to_idx = 40
-th_depth_trigger_bram = 99999999
+th_depth_trigger_bram_from_idx = (0, 40)
+th_depth_trigger_bram = 999999
+
+th_depth_trigger_uram_from_idx = (0, 0)
+th_depth_trigger_uram = 0
 
 # ConvolutionInputGenerator
-cig_ramstyle_from_idx = 0
-cig_ramstyle = "auto"
+cig_ramstyle_from_idx = 10
+cig_ramstyle = "ultra"
 
 
 for module, module_dict in d.items():
@@ -62,14 +65,10 @@ for module, module_dict in d.items():
             module_dict["mem_mode"] = vva_memmode
 
     elif "Thresholding" in module:
-        # if module_idx >= th_ramstyle_from_idx:
-        #     module_dict["ram_style"] = th_ramstyle
-        #     if th_ramstyle == "ultra":
-        #         module_dict["runtime_writeable_weights"] = 1
-        # if module_idx >= th_memmode_from_idx:
-        #     module_dict["mem_mode"] = th_memmode
-        if module_idx <= th_depth_trigger_bram_to_idx:
+        if module_idx >= th_depth_trigger_bram_from_idx[0] and (module_idx <= th_depth_trigger_bram_from_idx[1] or th_depth_trigger_bram_from_idx[1] == -1):
             module_dict["depth_trigger_bram"] = th_depth_trigger_bram
+        if module_idx >= th_depth_trigger_uram_from_idx[0] and (module_idx <= th_depth_trigger_uram_from_idx[1] or th_depth_trigger_uram_from_idx[1] == -1):
+            module_dict["depth_trigger_uram"] = th_depth_trigger_uram
 
     elif "ConvolutionInputGenerator" in module:
         if module_idx >= cig_ramstyle_from_idx:

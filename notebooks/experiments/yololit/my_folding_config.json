@@ -34,7 +34,7 @@
   "ConvolutionInputGenerator_rtl_0": {
     "SIMD": 1,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "distributed",
     "inFIFODepths": [
       2
     ],
@@ -126,7 +126,7 @@
       5860
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_6": {
     "ram_style": "auto",
@@ -181,7 +181,7 @@
   "ConvolutionInputGenerator_rtl_1": {
     "SIMD": 8,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "distributed",
     "inFIFODepths": [
       195
     ],
@@ -254,7 +254,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_12": {
     "ram_style": "auto",
@@ -321,7 +321,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_15": {
     "ram_style": "auto",
@@ -407,7 +407,7 @@
       569
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_19": {
     "ram_style": "auto",
@@ -462,7 +462,7 @@
   "ConvolutionInputGenerator_rtl_2": {
     "SIMD": 6,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "distributed",
     "inFIFODepths": [
       430
     ],
@@ -535,7 +535,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_25": {
     "ram_style": "auto",
@@ -621,7 +621,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_29": {
     "ram_style": "auto",
@@ -684,7 +684,7 @@
       4022
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_32": {
     "ram_style": "auto",
@@ -762,7 +762,7 @@
       13895
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_36": {
     "ram_style": "auto",
@@ -817,7 +817,7 @@
   "ConvolutionInputGenerator_rtl_3": {
     "SIMD": 8,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "distributed",
     "inFIFODepths": [
       658
     ],
@@ -890,7 +890,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_42": {
     "ram_style": "auto",
@@ -976,7 +976,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_46": {
     "ram_style": "auto",
@@ -1083,7 +1083,7 @@
       2303
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_51": {
     "ram_style": "auto",
@@ -1138,7 +1138,7 @@
   "ConvolutionInputGenerator_rtl_4": {
     "SIMD": 2,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "distributed",
     "inFIFODepths": [
       1745
     ],
@@ -1211,7 +1211,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_57": {
     "ram_style": "auto",
@@ -1278,7 +1278,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_60": {
     "ram_style": "auto",
@@ -1341,7 +1341,7 @@
       1373
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_63": {
     "ram_style": "auto",
@@ -1400,7 +1400,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_66": {
     "ram_style": "auto",
@@ -1455,7 +1455,7 @@
   "ConvolutionInputGenerator_rtl_5": {
     "SIMD": 3,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "distributed",
     "inFIFODepths": [
       3504
     ],
@@ -1528,7 +1528,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_72": {
     "ram_style": "auto",
@@ -1595,7 +1595,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_75": {
     "ram_style": "auto",
@@ -1679,7 +1679,7 @@
       1374
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_79": {
     "ram_style": "auto",
@@ -1738,7 +1738,7 @@
       71
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_82": {
     "ram_style": "auto",
@@ -1793,7 +1793,7 @@
   "ConvolutionInputGenerator_rtl_6": {
     "SIMD": 3,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "distributed",
     "inFIFODepths": [
       3504
     ],
@@ -1866,7 +1866,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_88": {
     "ram_style": "auto",
@@ -1933,7 +1933,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_91": {
     "ram_style": "auto",
@@ -2021,7 +2021,7 @@
       71
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_95": {
     "ram_style": "auto",
@@ -2057,7 +2057,7 @@
   "ConvolutionInputGenerator_rtl_7": {
     "SIMD": 1,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "distributed",
     "inFIFODepths": [
       5748
     ],
@@ -2111,7 +2111,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_99": {
     "ram_style": "auto",
@@ -2178,7 +2178,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_102": {
     "ram_style": "auto",
@@ -2241,7 +2241,7 @@
       1461
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_105": {
     "ram_style": "auto",
@@ -2300,7 +2300,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_108": {
     "ram_style": "auto",
@@ -2355,7 +2355,7 @@
   "ConvolutionInputGenerator_rtl_8": {
     "SIMD": 2,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "distributed",
     "inFIFODepths": [
       6334
     ],
@@ -2428,7 +2428,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_114": {
     "ram_style": "auto",
@@ -2495,7 +2495,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_117": {
     "ram_style": "auto",
@@ -2579,7 +2579,7 @@
       1461
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_121": {
     "ram_style": "auto",
@@ -2638,7 +2638,7 @@
       63
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_124": {
     "ram_style": "auto",
@@ -2693,7 +2693,7 @@
   "ConvolutionInputGenerator_rtl_9": {
     "SIMD": 2,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "distributed",
     "inFIFODepths": [
       6334
     ],
@@ -2766,7 +2766,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_130": {
     "ram_style": "auto",
@@ -2833,7 +2833,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_133": {
     "ram_style": "auto",
@@ -2917,7 +2917,7 @@
       1461
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_137": {
     "ram_style": "auto",
@@ -2976,7 +2976,7 @@
       63
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_140": {
     "ram_style": "auto",
@@ -3031,7 +3031,7 @@
   "ConvolutionInputGenerator_rtl_10": {
     "SIMD": 2,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "ultra",
     "inFIFODepths": [
       6334
     ],
@@ -3104,7 +3104,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_146": {
     "ram_style": "auto",
@@ -3171,7 +3171,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_149": {
     "ram_style": "auto",
@@ -3259,7 +3259,7 @@
       63
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_153": {
     "ram_style": "auto",
@@ -3314,7 +3314,7 @@
   "ConvolutionInputGenerator_rtl_11": {
     "SIMD": 2,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "ultra",
     "inFIFODepths": [
       6334
     ],
@@ -3387,7 +3387,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_159": {
     "ram_style": "auto",
@@ -3473,7 +3473,7 @@
       2
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_163": {
     "ram_style": "auto",
@@ -3536,7 +3536,7 @@
       3413
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_166": {
     "ram_style": "auto",
@@ -3614,7 +3614,7 @@
       287
     ],
     "depth_trigger_uram": 0,
-    "depth_trigger_bram": 99999999
+    "depth_trigger_bram": 999999
   },
   "StreamingFIFO_rtl_170": {
     "ram_style": "auto",
@@ -3669,7 +3669,7 @@
   "ConvolutionInputGenerator_rtl_12": {
     "SIMD": 2,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "ultra",
     "inFIFODepths": [
       13677
     ],
@@ -4045,7 +4045,7 @@
   "ConvolutionInputGenerator_rtl_13": {
     "SIMD": 2,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "ultra",
     "inFIFODepths": [
       9503
     ],
@@ -4423,7 +4423,7 @@
   "ConvolutionInputGenerator_rtl_14": {
     "SIMD": 1,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "ultra",
     "inFIFODepths": [
       2
     ],
@@ -4721,7 +4721,7 @@
   "ConvolutionInputGenerator_rtl_15": {
     "SIMD": 1,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "ultra",
     "inFIFODepths": [
       747
     ],
@@ -5059,7 +5059,7 @@
   "ConvolutionInputGenerator_rtl_16": {
     "SIMD": 1,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "ultra",
     "inFIFODepths": [
       747
     ],
@@ -5342,7 +5342,7 @@
   "ConvolutionInputGenerator_rtl_17": {
     "SIMD": 1,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "ultra",
     "inFIFODepths": [
       747
     ],
@@ -5669,7 +5669,7 @@
   "ConvolutionInputGenerator_rtl_18": {
     "SIMD": 1,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "ultra",
     "inFIFODepths": [
       2
     ],
@@ -5921,7 +5921,7 @@
   "ConvolutionInputGenerator_rtl_19": {
     "SIMD": 1,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "ultra",
     "inFIFODepths": [
       795
     ],
@@ -6154,7 +6154,7 @@
   "ConvolutionInputGenerator_rtl_20": {
     "SIMD": 1,
     "parallel_window": 0,
-    "ram_style": "auto",
+    "ram_style": "ultra",
     "inFIFODepths": [
       2
     ],
