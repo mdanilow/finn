@@ -94,13 +94,13 @@ def step_slr_floorplan(model: ModelWrapper, cfg: build_cfg.DataflowBuildConfig):
         try:
             from finnexperimental.analysis.partitioning import partition
 
-            # default_slr = 0
-            # abs_anchors = [(0, [default_slr]), (525, [default_slr]), (637, [default_slr]), (-1, [default_slr])]
+            default_slr = 0
+            abs_anchors = [(0, [default_slr]), (711, [default_slr]), (832, [default_slr]), (909, [default_slr])]
             floorplan = partition(
                 model,
                 cfg.synth_clk_period_ns,
                 cfg.board,
-                # abs_anchors=abs_anchors,
+                abs_anchors=abs_anchors,
                 multivariant=False,
             )[0]
             # apply floorplan to model
@@ -115,6 +115,7 @@ BUILD_DIR = os.environ["FINN_BUILD_DIR"]
 OUTPUT_DIR = join(BUILD_DIR, "yolov8_output_dir")
 BOARD = "U250"
 model_file = "untrained_quantyolov8.onnx"
+# model_file = join(OUTPUT_DIR, "intermediate_models", "step_measure_rtlsim_performance.onnx")
 folding_config_file = "final_hw_config.json"
 specialize_layers_config_file = None
 
@@ -143,10 +144,10 @@ build_steps = [
     "step_hw_codegen",
     "step_hw_ipgen",
     "step_set_fifo_depths",
-    # "step_create_stitched_ip",
+    "step_create_stitched_ip",
     step_slr_floorplan,
     "step_measure_rtlsim_performance",
-    # "step_out_of_context_synthesis",
+    "step_out_of_context_synthesis",
     "step_synthesize_bitfile",
     "step_make_pynq_driver",
     "step_deployment_package",
