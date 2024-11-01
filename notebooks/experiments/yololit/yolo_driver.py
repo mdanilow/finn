@@ -39,6 +39,7 @@ from qonnx.core.datatype import DataType
 from driver_base import FINNExampleOverlay
 from pynq.pl_server.device import Device
 from yolo import postprocess, plot_one_box
+from sort import Sort
 
 
 def preprocess(img):
@@ -100,8 +101,8 @@ if __name__ == "__main__":
     device = Device.devices[devID]
 
     imgdir = 'images'
-    img0_shape = (540, 960, 3)  #raw image
-    img1_shape = (320, 320, 3)  #after preprocess
+    img0_shape = (540, 960, 3)  # raw image
+    img1_shape = (320, 320, 3)  # after preprocess
     muls = [np.load("Mul_{}.npy".format(i)) for i in range(5)]
     adds = [np.load("Add_{}.npy".format(i)) for i in range(5)]
 
@@ -112,17 +113,46 @@ if __name__ == "__main__":
         runtime_weight_dir = runtime_weight_dir, device=device
     )
 
-    # for the remote execution the data from the input npy file has to be loaded,
-    # packed and copied to the PYNQ buffer
-    if exec_mode == "execute":
+    # instantiate SORT tracker
+    mot_tracker = Sort(max_age=1, 
+                       min_hits=3,
+                       iou_threshold=0.3) #create instance of the SORT tracker
 
-        imgnames = os.listdir(imgdir)
-        global_start = time.time()
-        for i, imgname in enumerate(imgnames):
+
+    imgnames = os.listdir(imgdir)
+    imgnames.sort()
+    # imgnames = imgnames[:1]
+    num_iterations = len(imgnames) + 2 # additional first iter just for preproc, additional last iter just for postproc
+    global_start = time.time()
+    for iteration in range(num_iterations):
+
+        if iteration != 0:
+            # asynchronously start accel on preprocessed input
+            accel.execute_on_buffers(asynch=True)
+        
+            if iteration != 1:
+                # postproc previous accel output
+                outputs = []
+                for o in range(io_shape_dict['num_outputs']):
+                    accel.copy_output_data_from_device(accel.obuf_packed[o], ind=o)
+                    obuf_folded = accel.unpack_output(accel.obuf_packed[o], ind=o)
+                    obuf_normal = accel.unfold_output(obuf_folded, ind=o)
+                    outputs.append(obuf_normal)
+                preds = postprocess(outputs, muls, adds, img1_shape, img0_shape, classes=[2, 5, 7])
+                
+                # run tracker on detections
+                tracks = mot_tracker.update(preds[:, :5])
+
+                # draw bboxes
+                # visualized = cv2.imread(join(imgdir, imgnames[iteration - 2]))
+                # for *xyxy, conf, cls in reversed(preds):
+                #     plot_one_box(xyxy, visualized, color=(0, 0, 255), line_thickness=1)
+                # cv2.imwrite('outputs/{}'.format(imgnames[iteration - 2]), visualized)
+        
+        if iteration < num_iterations - 2:
+            # preproc next input
+            imgname = imgnames[iteration]
             imgpath = join(imgdir, imgname)
-
-            #preproc
-            start_time = time.time()
             img0 = cv2.imread(imgpath)
             img = preprocess(img0)
             ibuf_normal = [img]
@@ -130,45 +160,11 @@ if __name__ == "__main__":
                 ibuf_folded = accel.fold_input(ibuf_normal[i], ind=i)
                 ibuf_packed = accel.pack_input(ibuf_folded, ind=i)
                 accel.copy_input_data_to_device(ibuf_packed, ind=i)
-            preproc_time = time.time() - start_time
+
+        if iteration != 0:
+            accel.wait_until_finished()
+        
+    total_time = time.time() - global_start
+    print('Average time:', total_time / len(imgnames), 'Average fps:', len(imgnames) / total_time)
 
 
-            # accel
-            accel.execute_on_buffers()
-            # obuf_normal = accel.execute(ibuf_normal)
-            accel_time = time.time() - start_time
-
-
-            #postproc
-            outputs = []
-            for o in range(io_shape_dict['num_outputs']):
-                accel.copy_output_data_from_device(accel.obuf_packed[o], ind=o)
-                obuf_folded = accel.unpack_output(accel.obuf_packed[o], ind=o)
-                obuf_normal = accel.unfold_output(obuf_folded, ind=o)
-                outputs.append(obuf_normal)
-            preds = postprocess(outputs, muls, adds, img1_shape, img0_shape)
-            postproc_time = time.time() - start_time
-
-
-            # draw bboxes
-            # for *xyxy, conf, cls in reversed(preds):
-            #     plot_one_box(xyxy, img0, color=(0, 0, 255), line_thickness=1)
-            # cv2.imwrite('outputs/{}'.format(imgname), img0)
-            print('pre accel post, total:', preproc_time, accel_time - preproc_time, postproc_time - accel_time, ',', postproc_time)
-
-        total_time = time.time() - global_start
-        print('Average time:', total_time / len(imgnames), 'Average fps:', len(imgnames) / total_time)
-
-    elif exec_mode == "throughput_test":
-        # remove old metrics file
-        try:
-            os.remove("nw_metrics.txt")
-        except FileNotFoundError:
-            pass
-        res = accel.throughput_test()
-        file = open("nw_metrics.txt", "w")
-        file.write(str(res))
-        file.close()
-        print("Results written to nw_metrics.txt")
-    else:
-        raise Exception("Exec mode has to be set to execute or throughput_test")

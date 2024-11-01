@@ -91,6 +91,10 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
         conf = np.take_along_axis(x[:, 5:], j, axis=1)
         x = np.concatenate((box, conf, j), 1)[conf.reshape(-1) > conf_thres]
 
+        # Filter by class
+        if classes is not None:
+            x = x[(x[:, 5:6] == np.array(classes)).any(1)]
+
         # Check shape
         n = x.shape[0]  # number of boxes
         if not n:  # no boxes
@@ -147,7 +151,7 @@ def clip_coords(boxes, img_shape):
     boxes[:, 3] = np.clip(boxes[:, 3], 0, img_shape[0])  # y2
 
 
-def postprocess(obuf_normal, muls, adds, img1_shape, img0_shape):
+def postprocess(obuf_normal, muls, adds, img1_shape, img0_shape, classes=None):
     if not isinstance(obuf_normal, list):
         obuf_normal = [obuf_normal]
 
@@ -164,7 +168,7 @@ def postprocess(obuf_normal, muls, adds, img1_shape, img0_shape):
         preds.append(x.reshape(bs, -1, no))
 
     preds = np.concatenate(preds, 1)
-    preds = non_max_suppression(preds, conf_thres, iou_thres)[0]
+    preds = non_max_suppression(preds, conf_thres, iou_thres, classes=classes)[0]
     preds[:, :4] = scale_coords(img1_shape, preds[:, :4], img0_shape).round()
 
     return preds
@@ -203,19 +207,3 @@ anchors = [
 anchor_grid = np.array(anchors).reshape(nl, 1, -1, 1, 1, 2)
 conf_thres = 0.2
 iou_thres = 0.45
-
-# preds = []
-# for i in range(nl):
-#     x = np.load('test/output{}.npy'.format(i)).transpose(0, 3, 1, 2)
-#     x *= muls[i]
-#     x += adds[i]
-#     bs, _, ny, nx = x.shape
-#     x = x.reshape(bs, na, no, ny, nx).transpose(0, 1, 3, 4, 2)
-#     x = 1/(1 + np.exp(-x))
-#     x[..., 0:2] = (x[..., 0:2] * 2. - 0.5 + grid[i]) * strides[i]
-#     x[..., 2:4] = (x[..., 2:4] * 2) ** 2 * anchor_grid[i]
-#     preds.append(x.reshape(bs, -1, no))
-
-# preds = np.concatenate(preds, 1)
-# preds = non_max_suppression(preds, conf_thres, iou_thres)
-# print(preds[0].shape)
