@@ -117,33 +117,47 @@ if __name__ == "__main__":
     if exec_mode == "execute":
 
         imgnames = os.listdir(imgdir)
+        global_start = time.time()
         for i, imgname in enumerate(imgnames):
             imgpath = join(imgdir, imgname)
 
+            #preproc
             start_time = time.time()
             img0 = cv2.imread(imgpath)
             img = preprocess(img0)
+            ibuf_normal = [img]
+            for i in range(io_shape_dict['num_inputs']):
+                ibuf_folded = accel.fold_input(ibuf_normal[i], ind=i)
+                ibuf_packed = accel.pack_input(ibuf_folded, ind=i)
+                accel.copy_input_data_to_device(ibuf_packed, ind=i)
             preproc_time = time.time() - start_time
 
-            # load desired input .npy file(s)
-            ibuf_normal = [img]
-            obuf_normal = accel.execute(ibuf_normal)
+
+            # accel
+            accel.execute_on_buffers()
+            # obuf_normal = accel.execute(ibuf_normal)
             accel_time = time.time() - start_time
 
-            preds = postprocess(obuf_normal, muls, adds, img1_shape, img0_shape)
+
+            #postproc
+            outputs = []
+            for o in range(io_shape_dict['num_outputs']):
+                accel.copy_output_data_from_device(accel.obuf_packed[o], ind=o)
+                obuf_folded = accel.unpack_output(accel.obuf_packed[o], ind=o)
+                obuf_normal = accel.unfold_output(obuf_folded, ind=o)
+                outputs.append(obuf_normal)
+            preds = postprocess(outputs, muls, adds, img1_shape, img0_shape)
             postproc_time = time.time() - start_time
 
-            # print(preds)
+
             # draw bboxes
-            for *xyxy, conf, cls in reversed(preds):
-                plot_one_box(xyxy, img0, color=(0, 0, 255), line_thickness=1)
-            cv2.imwrite('outputs/{}'.format(imgname), img0)
-            # if not isinstance(obuf_normal, list):
-            #     obuf_normal = [obuf_normal]
-            # for o, obuf in enumerate(obuf_normal):
-            #     np.save(join('test', outputfile[o]), obuf)
+            # for *xyxy, conf, cls in reversed(preds):
+            #     plot_one_box(xyxy, img0, color=(0, 0, 255), line_thickness=1)
+            # cv2.imwrite('outputs/{}'.format(imgname), img0)
             print('pre accel post, total:', preproc_time, accel_time - preproc_time, postproc_time - accel_time, ',', postproc_time)
 
+        total_time = time.time() - global_start
+        print('Average time:', total_time / len(imgnames), 'Average fps:', len(imgnames) / total_time)
 
     elif exec_mode == "throughput_test":
         # remove old metrics file
