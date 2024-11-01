@@ -1,55 +1,4 @@
 
-import numpy as np
-
-
-def make_grid(sizes):
-
-    grid = []
-    for (nx, ny) in sizes:
-        xv, yv = np.meshgrid(np.arange(nx), np.arange(ny))
-        grid.append(np.stack((xv, yv), 2).reshape((1, 1, ny, nx, 2)))
-    return grid
-
-
-nl = 5
-muls = [np.load("Mul_{}.npy".format(i)) for i in range(nl)]
-adds = [np.load("Add_{}.npy".format(i)) for i in range(nl)]
-na = 3
-no = 85
-sizes = [(20, 20), (10, 10), (5, 5), (3, 3), (2, 2)]
-grid = make_grid(sizes)
-strides = [16, 32, 64, 128, 256]
-anchors = [
-    [4.87787,   6.35631, 12.91158,   9.03208, 7.15285,  18.29766],
-    [15.59967,  22.33371, 35.73561,  19.68820, 21.02688,  47.27071],
-    [40.85436,  39.83278, 38.59727,  78.41331, 81.68491,  46.31688],
-    [69.72626,  85.14220, 70.14906, 160.70825, 124.91834, 114.23557],
-    [206.45392,  86.47435, 170.41608, 228.14876, 262.37347, 175.54692]
-]
-anchor_grid = np.array(anchors).reshape(nl, 1, -1, 1, 1, 2)
-
-preds = []
-for i in range(nl):
-    x = np.load('output{}.npy'.format(i)).transpose(0, 3, 1, 2)
-    x *= muls[i]
-    x += adds[i]
-    bs, _, ny, nx = x.shape
-    x = x.reshape(bs, na, no, ny, nx).transpose(0, 1, 3, 4, 2)
-    x = 1/(1 + np.exp(-x))
-    x[..., 0:2] = (x[..., 0:2] * 2. - 0.5 + grid[i]) * strides[i]
-    x[..., 2:4] = (x[..., 2:4] * 2) ** 2 * anchor_grid[i]
-    preds.append(x.reshape(bs, -1, no))
-
-preds = np.concatenate(preds, 1)
-print(preds.shape)
-
-
-
-
-
-
-
-
 # Copyright (c) 2020 Xilinx, Inc.
 # All rights reserved.
 #
@@ -82,12 +31,14 @@ import argparse
 import numpy as np
 import os
 from os.path import join
+import time
 
 import cv2
 
 from qonnx.core.datatype import DataType
 from driver_base import FINNExampleOverlay
 from pynq.pl_server.device import Device
+from yolo import postprocess, plot_one_box
 
 
 def preprocess(img):
@@ -101,15 +52,6 @@ def preprocess(img):
     img = img[:, :, ::-1]
 
     return np.expand_dims(img, 0)
-
-
-def postprocess(obuf_normal, muls, adds):
-    if not isinstance(obuf_normal, list):
-        obuf_normal = [obuf_normal]
-
-    # for x in obuf_normal:
-    #     print(x.shape)
-    
 
 
 # dictionary describing the I/O of the FINN-generated accelerator
@@ -156,8 +98,10 @@ if __name__ == "__main__":
     runtime_weight_dir = args.runtime_weight_dir
     devID = args.device
     device = Device.devices[devID]
-    imgdir = 'images'
 
+    imgdir = 'images'
+    img0_shape = (540, 960, 3)  #raw image
+    img1_shape = (320, 320, 3)  #after preprocess
     muls = [np.load("Mul_{}.npy".format(i)) for i in range(5)]
     adds = [np.load("Add_{}.npy".format(i)) for i in range(5)]
 
@@ -173,19 +117,34 @@ if __name__ == "__main__":
     if exec_mode == "execute":
 
         imgnames = os.listdir(imgdir)
-        for imgname in imgnames[:1]:
+        for i, imgname in enumerate(imgnames):
             imgpath = join(imgdir, imgname)
-            img = cv2.imread(imgpath)
-            img = preprocess(img)
+
+            start_time = time.time()
+            img0 = cv2.imread(imgpath)
+            img = preprocess(img0)
+            preproc_time = time.time() - start_time
 
             # load desired input .npy file(s)
             ibuf_normal = [img]
             obuf_normal = accel.execute(ibuf_normal)
-            pred = postprocess(obuf_normal, muls, adds)
+            accel_time = time.time() - start_time
+
+            preds = postprocess(obuf_normal, muls, adds, img1_shape, img0_shape)
+            postproc_time = time.time() - start_time
+
+            # print(preds)
+            # draw bboxes
+            for *xyxy, conf, cls in reversed(preds):
+                plot_one_box(xyxy, img0, color=(0, 0, 255), line_thickness=1)
+            cv2.imwrite('outputs/{}'.format(imgname), img0)
             # if not isinstance(obuf_normal, list):
             #     obuf_normal = [obuf_normal]
             # for o, obuf in enumerate(obuf_normal):
             #     np.save(join('test', outputfile[o]), obuf)
+            print('pre accel post, total:', preproc_time, accel_time - preproc_time, postproc_time - accel_time, ',', postproc_time)
+
+
     elif exec_mode == "throughput_test":
         # remove old metrics file
         try:
