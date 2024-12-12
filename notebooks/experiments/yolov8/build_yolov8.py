@@ -94,8 +94,21 @@ def step_slr_floorplan(model: ModelWrapper, cfg: build_cfg.DataflowBuildConfig):
         try:
             from finnexperimental.analysis.partitioning import partition
 
+            ins = [x.name for x in model.graph.input]
+            outs = [x.name for x in model.graph.output]
+            last_nodes = [model.find_producer(out).name for out in outs]
+            first_nodes = [model.find_consumer(inp).name for inp in ins]
+            inout_nodes = first_nodes + last_nodes
+            indices = []
+            print('FLOORPLANNING, nodes that are anchored to slr 0:')
+            for i, node in enumerate(model.graph.node):
+                if node.name in inout_nodes:
+                    indices.append(i)
+                    print(node.name, i)
+
             default_slr = 0
-            abs_anchors = [(0, [default_slr]), (711, [default_slr]), (832, [default_slr]), (909, [default_slr])]
+            # abs_anchors = [(0, [default_slr]), (525, [default_slr]), (637, [default_slr]), (-1, [default_slr])
+            abs_anchors = [(i, [default_slr]) for i in indices]
             floorplan = partition(
                 model,
                 cfg.synth_clk_period_ns,
