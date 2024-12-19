@@ -59,7 +59,7 @@ create_bd_cell -type ip -vlnv xilinx.com:ip:axi_interconnect:2.1 axi_interconnec
 """
     for i in range(num_mm_interconnects):
         template += 'create_bd_cell -type ip -vlnv xilinx.com:ip:axi_interconnect:2.1 axi_interconnect_{}\n'.format(i + 1)
-        template += 'set_property -dict [list CONFIG.NUM_SI {}] [get_bd_cells axi_interconnect_{}]\n'.format(INTERCONNECT_S_INTERFACES if i < num_mm_interconnects - 1 else num_aximm % INTERCONNECT_S_INTERFACES,
+        template += 'set_property -dict [list CONFIG.NUM_SI {}] [get_bd_cells axi_interconnect_{}]\n'.format(INTERCONNECT_S_INTERFACES if i < num_mm_interconnects - 1 else num_aximm - i * INTERCONNECT_S_INTERFACES,
                                                                                                             i + 1)
         template += 'set_property -dict [list CONFIG.NUM_MI 1] [get_bd_cells axi_interconnect_{}]\n'.format(i + 1)
 
