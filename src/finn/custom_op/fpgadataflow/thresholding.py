@@ -147,8 +147,10 @@ class Thresholding(HWCustomOp):
         min_input = self.get_input_datatype().min()
         max_input = self.get_input_datatype().max()
         # get range required by threshold values
-        tdt_min = min(min_input, min_threshold)
-        tdt_max = max(max_input, max_threshold)
+        # tdt_min = min(min_input, min_threshold)
+        # tdt_max = max(max_input, max_threshold)
+        tdt_min = min_threshold
+        tdt_max = max_threshold
         if tdt_min < 0:
             if abs(tdt_min) > tdt_max:
                 tdt = DataType.get_smallest_possible(tdt_min)
