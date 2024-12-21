@@ -65,6 +65,7 @@ class StreamingFIFO(HWCustomOp):
                 # the FIFO does not need its own FIFOs
                 "inFIFODepths": ("ints", False, [0]),
                 "outFIFODepths": ("ints", False, [0]),
+                "noWidthPad": ("i", False, 0),
             }
         )
 

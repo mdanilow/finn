@@ -246,6 +246,7 @@ class InsertAndSetFIFODepths(Transformation):
         swg_exception=False,
         vivado_ram_style="auto",
         force_python_sim=False,
+        ignore_swg=False,
     ):
         super().__init__()
         self.fpgapart = fpgapart
@@ -255,6 +256,7 @@ class InsertAndSetFIFODepths(Transformation):
         self.swg_exception = swg_exception
         self.vivado_ram_style = vivado_ram_style
         self.force_python_sim = force_python_sim
+        self.ignore_swg = ignore_swg
 
     def apply(self, model):
         # these optypes may potentially use external weights
@@ -285,6 +287,12 @@ class InsertAndSetFIFODepths(Transformation):
                     ofd[o] = np.prod(node.get_folded_output_shape(o)[:-1])
             node.set_nodeattr("inFIFODepths", ifd)
             node.set_nodeattr("outFIFODepths", ofd)
+            if self.ignore_swg:
+                if 'ConvolutionInputGenerator' in node.onnx_node.op_type:
+                    node.set_nodeattr("inFIFODepths", [2] * len(ifd))
+                    node.set_nodeattr("outFIFODepths", [2] * len(ofd))
+                if 'Thresholding' in node.onnx_node.op_type:
+                    node.set_nodeattr("inFIFODepths", [2] * len(ifd))
             if node.onnx_node.op_type in extw_optypes:
                 mmode = node.get_nodeattr("mem_mode")
                 if mmode == "external":
@@ -573,6 +581,7 @@ class SplitLargeFIFOs(Transformation):
             if node.op_type == ("StreamingFIFO_rtl"):
                 n_inst = getCustomOp(node)
                 depth = n_inst.get_nodeattr("depth")
+                nowidthpad = n_inst.get_nodeattr("noWidthPad") # whether we need to pad the width of original fifo to bytes
                 cfgs = get_fifo_split_configs(depth, self.max_qsrl_depth, self.max_vivado_depth)
                 if len(cfgs) > 1:
                     fld_shape = n_inst.get_folded_output_shape()
@@ -605,8 +614,9 @@ class SplitLargeFIFOs(Transformation):
                             normal_shape=n_shape,
                             dataType=dtype,
                             impl_style=impl_style,
-                            ram_style=ram_style,
+                            ram_style=ram_style if fifo_depth >= 2048 else "auto",
                             name=node.name + "_" + str(i),
+                            noWidthPad=nowidthpad,
                         )
                         graph.node.insert(node_ind + i, fifo_node)
 
