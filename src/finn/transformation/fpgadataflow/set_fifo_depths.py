@@ -288,11 +288,23 @@ class InsertAndSetFIFODepths(Transformation):
             node.set_nodeattr("inFIFODepths", ifd)
             node.set_nodeattr("outFIFODepths", ofd)
             if self.ignore_swg:
+                producer = model.find_producer(node.onnx_node.input[0])
+                producer = getCustomOp(producer) if producer else producer
+                if 'ConvolutionInputGenerator' in node.onnx_node.op_type or 'Thresholding' in node.onnx_node.op_type:
+                    if producer:
+                        producer_out_idx = None
+                        for idx, out in enumerate(producer.onnx_node.output):
+                            if out == node.onnx_node.input[0]:
+                                producer_out_idx = idx
+                        producer_old_outfifodepths = producer.get_nodeattr("outFIFODepths")
+                        producer_old_outfifodepths[producer_out_idx] = 2
+                        producer.set_nodeattr("outFIFODepths", producer_old_outfifodepths)
+                    node.set_nodeattr("inFIFODepths", [2] * len(ifd))
                 if 'ConvolutionInputGenerator' in node.onnx_node.op_type:
-                    node.set_nodeattr("inFIFODepths", [2] * len(ifd))
                     node.set_nodeattr("outFIFODepths", [2] * len(ofd))
-                if 'Thresholding' in node.onnx_node.op_type:
+                if producer and ('ConvolutionInputGenerator' in producer.onnx_node.op_type):
                     node.set_nodeattr("inFIFODepths", [2] * len(ifd))
+                
             if node.onnx_node.op_type in extw_optypes:
                 mmode = node.get_nodeattr("mem_mode")
                 if mmode == "external":

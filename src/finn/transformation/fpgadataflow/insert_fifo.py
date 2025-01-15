@@ -169,6 +169,7 @@ class InsertFIFO(Transformation):
                                 dataType=str(dtype.name),
                                 impl_style=impl_style,
                                 ram_style=self.vivado_ram_style,
+                                noWidthPad=1 # we don't need to pad fifo width to bytes for nodes that are not for DMAs
                             )
                             # insert fifo
                             graph.node.insert(node_ind + 1, fifo_node)
