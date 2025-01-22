@@ -5,6 +5,7 @@ import shutil
 
 # build steps
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.util.config import extract_model_config_to_json
 # streamline
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.general import (
@@ -91,36 +92,54 @@ def step_yolov8_convert_to_hw_layers(model: ModelWrapper, cfg: build_cfg.Dataflo
 
 def step_slr_floorplan(model: ModelWrapper, cfg: build_cfg.DataflowBuildConfig):
     if cfg.shell_flow_type == build_cfg.ShellFlowType.VITIS_ALVEO:
-        try:
-            from finnexperimental.analysis.partitioning import partition
+        ins = [x.name for x in model.graph.input]
+        outs = [x.name for x in model.graph.output]
+        last_nodes = [model.find_producer(out).name for out in outs]
+        first_nodes = [model.find_consumer(inp).name for inp in ins]
+        inout_nodes = first_nodes + last_nodes
+        default_slr = 0
+        indices = []
+        floorplan_dict = {"Defaults": {}}
+        print('FLOORPLANNING, nodes that are anchored to slr 0:')
+        for i, node in enumerate(model.graph.node):
+            if node.name in inout_nodes:
+                indices.append(i)
+                node_dict = {"slr": default_slr}
+                floorplan_dict[node.name] = node_dict
+                print(node.name, i)
 
-            ins = [x.name for x in model.graph.input]
-            outs = [x.name for x in model.graph.output]
-            last_nodes = [model.find_producer(out).name for out in outs]
-            first_nodes = [model.find_consumer(inp).name for inp in ins]
-            inout_nodes = first_nodes + last_nodes
-            indices = []
-            print('FLOORPLANNING, nodes that are anchored to slr 0:')
-            for i, node in enumerate(model.graph.node):
-                if node.name in inout_nodes:
-                    indices.append(i)
-                    print(node.name, i)
+        # abs_anchors = [(0, [default_slr]), (525, [default_slr]), (637, [default_slr]), (-1, [default_slr])
+        # abs_anchors = [(i, [default_slr]) for i in indices]
 
-            default_slr = 0
-            # abs_anchors = [(0, [default_slr]), (525, [default_slr]), (637, [default_slr]), (-1, [default_slr])
-            abs_anchors = [(i, [default_slr]) for i in indices]
-            floorplan = partition(
-                model,
-                cfg.synth_clk_period_ns,
-                cfg.board,
-                abs_anchors=abs_anchors,
-                multivariant=False,
-            )[0]
-            # apply floorplan to model
-            model = model.transform(ApplyConfig(floorplan))
-            print("SLR floorplanning applied")
-        except Exception:
-            print("No SLR floorplanning applied")
+        # floorplan = partition(
+        #     model,
+        #     cfg.synth_clk_period_ns,
+        #     "U250",
+        #     abs_anchors=abs_anchors,
+        #     multivariant=False,
+        # )[0]
+        # apply floorplan to model
+        model = model.transform(ApplyConfig(floorplan_dict))
+        hw_attrs = [
+            "PE",
+            "SIMD",
+            "parallel_window",
+            "ram_style",
+            "depth",
+            "impl_style",
+            "resType",
+            "mem_mode",
+            "runtime_writeable_weights",
+            "inFIFODepths",
+            "outFIFODepths",
+            "depth_trigger_uram",
+            "depth_trigger_bram",
+            "slr",
+        ]
+        extract_model_config_to_json(model, cfg.output_dir + "/final_hw_config_floorplan.json", hw_attrs)
+        print("SLR floorplanning applied")
+        # except Exception:
+        #     print("No SLR floorplanning applied")
     return model
 
 
@@ -128,7 +147,11 @@ BUILD_DIR = os.environ["FINN_BUILD_DIR"]
 OUTPUT_DIR = join(BUILD_DIR, "yolov8_output_dir")
 BOARD = "U55C"
 model_file = "quantyolov8_4w4a_comact_tidy.onnx"
+<<<<<<< HEAD
 # model_file = join(BUILD_DIR, 'yolov8_output_dir_old', "intermediate_models", "step_target_fps_parallelization.onnx")
+=======
+# model_file = join(OUTPUT_DIR, "intermediate_models", "step_hw_ipgen.onnx")
+>>>>>>> b16fac964ca97ae4c30bef3468df08e6cf7d1865
 folding_config_file = None
 specialize_layers_config_file = None
 
