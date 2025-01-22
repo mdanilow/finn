@@ -126,15 +126,15 @@ def step_slr_floorplan(model: ModelWrapper, cfg: build_cfg.DataflowBuildConfig):
 
 BUILD_DIR = os.environ["FINN_BUILD_DIR"]
 OUTPUT_DIR = join(BUILD_DIR, "yolov8_output_dir")
-BOARD = "U250"
-model_file = "untrained_quantyolov8.onnx"
-# model_file = join(OUTPUT_DIR, "intermediate_models", "step_measure_rtlsim_performance.onnx")
-folding_config_file = "final_hw_config.json"
+BOARD = "U55C"
+model_file = "quantyolov8_4w4a_comact_tidy.onnx"
+# model_file = join(BUILD_DIR, 'yolov8_output_dir_old', "intermediate_models", "step_target_fps_parallelization.onnx")
+folding_config_file = None
 specialize_layers_config_file = None
 
 # which platforms to build the networks for
 zynq_platforms = ["ZCU104", "ZCU102"]
-alveo_platforms = ["U250"]
+alveo_platforms = ["U250", "U55C"]
 # determine which shell flow to use for a given platform
 def platform_to_shell(platform):
     if platform in zynq_platforms:
@@ -173,10 +173,10 @@ cfg = build.DataflowBuildConfig(
     standalone_thresholds=True,
     folding_config_file=folding_config_file,
     specialize_layers_config_file=specialize_layers_config_file,
-    auto_fifo_depths=False,
+    auto_fifo_depths=True,
     split_large_fifos=True,
     synth_clk_period_ns=10,
-    # target_fps=30,
+    target_fps=90,
     board=BOARD,
     shell_flow_type=platform_to_shell(BOARD),
     steps=build_steps,
