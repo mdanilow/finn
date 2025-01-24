@@ -443,7 +443,7 @@ def packed_bytearray_to_finnpy(
     mask = 2 ** (target_bits - 1) if dtype.name.startswith('INT') else 0 # sign bit mask
     result = np.zeros(output_shape).astype(np.int32)
     inner_dim_elements = result.shape[-1]
-    packing = int(target_bits / 8)
+    packing = packed_bytearray.shape[-1]
 
     for i in range(inner_dim_elements):
         if packing:
