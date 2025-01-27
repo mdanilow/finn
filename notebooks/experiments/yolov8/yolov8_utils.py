@@ -1,31 +1,18 @@
 import numpy as np
+import cv2
+import random
 
-
+NUM_CLASSES = 80
+DFL_REGRESSION_SPACE = 16
 STRIDE = [8, 16, 32]
-io_shape_dict = {
-    # FINN DataType for input and output tensors
-    # shapes for input and output tensors (NHWC layout)
-    "ishape_normal" : [(1, 192, 320, 3)],
-    "oshape_normal" : [(1, 24, 40, 144), (1, 12, 20, 144), (1, 6, 10, 144)],
-    # folded / packed shapes below depend on idt/odt and input/output
-    # PE/SIMD parallelization settings -- these are calculated by the
-    # FINN compiler.
-    "ishape_folded" : [(1, 192, 320, 3, 1)],
-    "oshape_folded" : [(1, 24, 40, 144, 1), (1, 12, 20, 144, 1), (1, 6, 10, 144, 1)],
-    "ishape_packed" : [(1, 192, 320, 3, 1)],
-    "oshape_packed" : [(1, 24, 40, 144, 3), (1, 12, 20, 144, 3), (1, 6, 10, 144, 3)],
-    "input_dma_name" : ['idma0'],
-    "output_dma_name" : ['odma0', 'odma1', 'odma2'],
-    "number_of_external_weights": 0,
-    "num_inputs" : 1,
-    "num_outputs" : 3,
-}
+NUM_OUTPUTS = NUM_CLASSES + DFL_REGRESSION_SPACE * 4
 
-def make_anchors(io_shape_dict, strides, grid_cell_offset=0.5):
+
+def make_anchors(io_shape_dict, grid_cell_offset=0.5):
     """Generate anchors from features."""
     anchor_points, stride_tensor = [], []
     output_shapes = io_shape_dict["oshape_normal"]
-    for i, stride in enumerate(strides):
+    for i, stride in enumerate(STRIDE):
         _, h, w, _ = output_shapes[i]
         sx = np.arange(start=grid_cell_offset, stop=w, step=1)
         sy = np.arange(start=grid_cell_offset, stop=h, step=1)
@@ -33,12 +20,156 @@ def make_anchors(io_shape_dict, strides, grid_cell_offset=0.5):
         anchor_points.append(np.stack((sx, sy), -1).reshape((-1, 2)))
         stride_tensor.append([stride] * (h*w))
 
-    return np.concatenate(anchor_points), np.concatenate(stride_tensor)
+    return np.expand_dims(np.concatenate(anchor_points).transpose(1, 0), 0), np.concatenate(stride_tensor)
 
 
-points, strides = make_anchors(io_shape_dict, STRIDE)
+def V8_non_max_suppression(
+    prediction,
+    conf_thres=0.2,
+    iou_thres=0.45,
+    classes=None,
+    agnostic=False,
+    multi_label=True,
+    labels=(),
+    max_det=300,
+    nc=0,  # number of classes (optional)
+    max_time_img=0.05,
+    max_nms=30000,
+    max_wh=7680,
+    in_place=True,
+    rotated=False,
+):
 
-print(points.shape)
-print(strides.shape)
-print(points)
-print(strides)
+    def nms(boxes, scores, overlap_threshold=0.5, min_mode=False):
+        x1 = boxes[:, 0]
+        y1 = boxes[:, 1]
+        x2 = boxes[:, 2]
+        y2 = boxes[:, 3]
+
+        areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+        index_array = scores.argsort()[::-1]
+        keep = []
+        while index_array.size > 0:
+            keep.append(index_array[0])
+            x1_ = np.maximum(x1[index_array[0]], x1[index_array[1:]])
+            y1_ = np.maximum(y1[index_array[0]], y1[index_array[1:]])
+            x2_ = np.minimum(x2[index_array[0]], x2[index_array[1:]])
+            y2_ = np.minimum(y2[index_array[0]], y2[index_array[1:]])
+
+            w = np.maximum(0.0, x2_ - x1_ + 1)
+            h = np.maximum(0.0, y2_ - y1_ + 1)
+            inter = w * h
+
+            if min_mode:
+                overlap = inter / np.minimum(areas[index_array[0]], areas[index_array[1:]])
+            else:
+                overlap = inter / (areas[index_array[0]] + areas[index_array[1:]] - inter)
+
+            inds = np.where(overlap <= overlap_threshold)[0]
+            index_array = index_array[inds + 1]
+        return keep
+
+    # import torchvision  # scope for faster 'import ultralytics'
+
+    bs = prediction.shape[0]  # batch size (BCN, i.e. 1,84,6300)
+    nc = nc or (prediction.shape[1] - 4)  # number of classes
+    nm = prediction.shape[1] - nc - 4  # number of masks
+    mi = 4 + nc  # mask start index
+    # xc = prediction[:, 4:mi].amax(1) > conf_thres  # candidates
+    xc = np.max(prediction[:, 4:], axis=1) > conf_thres
+
+    prediction = prediction.transpose(0, 2, 1)
+    output = [np.zeros((0, 6))] * bs
+    for xi, x in enumerate(prediction):  # image index, image inference
+        x = x[xc[xi]]  # confidence
+
+        # If none remain process next image
+        if not x.shape[0]:
+            continue
+
+        # Detections matrix nx6 (xyxy, conf, cls)
+        box_cls = np.split(x, [4], axis=1)
+        box = box_cls[0]
+        cls = box_cls[1]
+
+        # if multi_label:
+        #     i, j = torch.where(cls > conf_thres)
+        #     x = torch.cat((box[i], x[i, 4 + j, None], j[:, None].float(), mask[i]), 1)
+        # else:  # best class only
+        j = cls.argmax(1, keepdims=True)
+        conf = np.take_along_axis(x[:, 4:], j, axis=1)
+        x = np.concatenate((box, conf, j), 1)
+
+        # Filter by class
+        if classes is not None:
+            x = x[(x[:, 5:6] == classes).any(1)]
+
+        # Check shape
+        n = x.shape[0]  # number of boxes
+        if not n:  # no boxes
+            continue
+        if n > max_nms:  # excess boxes
+            x = x[x[:, 4].argsort(descending=True)[:max_nms]]  # sort by confidence and remove excess boxes
+
+        # Batched NMS
+        c = x[:, 5:6] * (0 if agnostic else max_wh)  # classes
+        scores = x[:, 4]  # scores
+        if rotated:
+            boxes = torch.cat((x[:, :2] + c, x[:, 2:4], x[:, -1:]), dim=-1)  # xywhr
+            i = nms_rotated(boxes, scores, iou_thres)
+        else:
+            boxes = x[:, :4] + c  # boxes (offset by class)
+            i = nms(boxes, scores, iou_thres)
+        i = i[:max_det]  # limit detections
+
+        output[xi] = x[i]
+
+    return output
+
+
+def yolov8_postproc(outs, batch_size, anchor_points, strides):
+
+    dfl_integration_weights = np.arange(DFL_REGRESSION_SPACE).reshape(1, -1, 1, 1)
+    x_cat = np.concatenate([out.reshape(batch_size, NUM_OUTPUTS, -1) for out in outs], 2)
+    boxes_classes = np.split(x_cat, [DFL_REGRESSION_SPACE * 4], axis=1)
+    boxes, classes = boxes_classes
+    classes = 1 / (1 + np.exp(-classes))
+
+    # DFL expected value
+    boxes = boxes.reshape(batch_size, 4, DFL_REGRESSION_SPACE, -1).transpose(0, 2, 1, 3)
+    exp_boxes = np.exp(boxes)
+    boxes = exp_boxes / np.sum(exp_boxes, axis=1)
+    boxes *= dfl_integration_weights
+    boxes = np.sum(boxes, 1) 
+
+    # decode bboxes
+    left_top_right_bottom = np.split(boxes, 2, axis=1)
+    lt = left_top_right_bottom[0]
+    rb = left_top_right_bottom[1]
+    x1y1 = anchor_points - lt
+    x2y2 = anchor_points + rb
+    # center_xy = (x1y1 + x2y2) / 2
+    # wh = x2y2 - x1y1
+    # boxes = np.concatenate((center_xy, wh), 1) * strides
+    boxes = np.concatenate((x1y1, x2y2), 1) * strides
+    pred = np.concatenate((boxes, classes), 1)
+
+    # nms
+    pred = V8_non_max_suppression(pred)
+    
+    return pred
+
+
+def plot_one_box(x, img, color=None, label=None, line_thickness=3):
+    # Plots one bounding box on image img
+    tl = line_thickness or round(0.002 * (img.shape[0] + img.shape[1]) / 2) + 1  # line/font thickness
+    color = color or [random.randint(0, 255) for _ in range(3)]
+    c1, c2 = (int(x[0]), int(x[1])), (int(x[2]), int(x[3]))
+    cv2.rectangle(img, c1, c2, color, thickness=tl, lineType=cv2.LINE_AA)
+    if label:
+        tf = max(tl - 1, 1)  # font thickness
+        t_size = cv2.getTextSize(label, 0, fontScale=tl / 3, thickness=tf)[0]
+        c2 = c1[0] + t_size[0], c1[1] - t_size[1] - 3
+        cv2.rectangle(img, c1, c2, color, -1, cv2.LINE_AA)  # filled
+        cv2.putText(img, label, (c1[0], c1[1] - 2), 0, tl / 3, [225, 255, 255], thickness=tf, lineType=cv2.LINE_AA)
+    
