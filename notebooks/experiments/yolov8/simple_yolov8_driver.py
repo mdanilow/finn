@@ -102,21 +102,28 @@ if __name__ == "__main__":
     adds = [np.load("Add_{}_param0".format(i)) for i in range(io_shape_dict['num_outputs'])]
     anchor_points, strides = make_anchors(io_shape_dict)
 
-    for frame_idx, imgname in enumerate(imgnames):
+    num_batches = int(np.floor(len(imgnames) / batch_size))
+    imgbatches = [imgnames[batch*batch_size : (batch + 1)*batch_size] for batch in range(num_batches)]
+    imgbatches = [np.concatenate([np.load(join(sequence_dir, path)) for path in batch], axis=0) for batch in imgbatches]
+    outputs = [[np.zeros(1) for _ in range(io_shape_dict['num_outputs'])] for b in range(batch_size)]
+    
+    start = time()
+    for batch_idx, batch in enumerate(imgbatches):
 
-        print(imgname)
-        imgpath = join(sequence_dir, imgname)
-        ibuf_normal = np.load(imgpath)
-        obuf_normal = accel.execute([ibuf_normal])
-        outs = []
+        obuf_normal = accel.execute([batch])
+        # out_batches = []
         for o, obuf in enumerate(obuf_normal):
             # np.save(outputfile[o], obuf)
             out = obuf.transpose(0, 3, 1, 2)
             out *= muls[o]
             out += adds[o]
-            outs.append(out)
+            for in_batch_idx, single_output in enumerate(out):
+                outputs[in_batch_idx][o] = single_output
         
-        preds = yolov8_postproc(outs, batch_size, anchor_points, strides)[0]
-        for *xyxy, conf, cls in reversed(preds):
-            plot_one_box(xyxy, ibuf_normal[0], color=(0, 0, 255), line_thickness=1)
-        cv2.imwrite('outputs/result{:03d}.jpg'.format(frame_idx), ibuf_normal[0])
+        for outs_idx, outs in enumerate(outputs):
+            preds = yolov8_postproc(outs, 1, anchor_points, strides)[0]
+            for *xyxy, conf, cls in reversed(preds):
+                plot_one_box(xyxy, batch[outs_idx], color=(0, 0, 255), line_thickness=1)
+            cv2.imwrite('outputs/result{:03d}.jpg'.format(batch_idx*batch_size + outs_idx), batch[outs_idx])
+    processing_time = time() - start
+    print('fps:', (batch_size * num_batches) / processing_time)
