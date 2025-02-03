@@ -38,8 +38,7 @@ from os.path import join
 from time import time
 import cv2
 
-from yolov8 import yolov8_postproc, make_anchors, plot_one_box
-# DetectorDriver, scale_coords
+from yolov8_utils import plot_one_box, DetectorDriver, scale_coords
 
 # dictionary describing the I/O of the FINN-generated accelerator
 io_shape_dict = {
@@ -74,7 +73,7 @@ if __name__ == "__main__":
     parser.add_argument('--inputfile', help='name(s) of input npy file(s) (i.e. "input.npy")', nargs="*", type=str, default=["input.npy"])
     parser.add_argument('--outputfile', help='name(s) of output npy file(s) (i.e. "output.npy")', nargs="*", type=str, default=["output0.npy", "output1.npy", "output2.npy"])
     parser.add_argument('--runtime_weight_dir', help='path to folder containing runtime-writable .dat weights', default="runtime_weights/")
-    parser.add_argument('--sequence_dir', help='path to the folder with input images', type=str, default='images')
+    parser.add_argument('--sequence_dir', help='path to the folder with input images', type=str, default='img1')
     parser.add_argument('--save_images', help='whether to visualize results by saving images with bounding boxes', action='store_true')
     # parse arguments
     args = parser.parse_args()
@@ -88,7 +87,9 @@ if __name__ == "__main__":
     devID = args.device
     device = Device.devices[devID]
 
-    sequence_dir = args.sequence_dir
+    imgnames = os.listdir(args.sequence_dir)
+    imgnames.sort()
+    num_batches = int(np.floor(len(imgnames) / batch_size))
 
     # instantiate FINN accelerator driver and pass batchsize and bitfile
     accel = FINNExampleOverlay(
@@ -97,163 +98,46 @@ if __name__ == "__main__":
         runtime_weight_dir = runtime_weight_dir, device=device
     )
 
-    imgnames = os.listdir(sequence_dir)
-    imgnames.sort()
-    imgnames = imgnames
-    muls = [np.load("Mul_{}_param0".format(i)) for i in range(io_shape_dict['num_outputs'])]
-    adds = [np.load("Add_{}_param0".format(i)) for i in range(io_shape_dict['num_outputs'])]
-    anchor_points, strides = make_anchors(io_shape_dict)
-    # detector_driver = DetectorDriver(accel,
-    #                                  io_shape_dict,
-    #                                  batch_size=batch_size,
-    #                                  stride=[8, 16, 32],
-    #                                  num_classes=80)
+    detector_driver = DetectorDriver(
+        accel,
+        io_shape_dict,
+        batch_size=batch_size,
+        stride=[8, 16, 32],
+        num_classes=80
+    )
 
-    num_batches = int(np.floor(len(imgnames) / batch_size))
-    imgbatches = [imgnames[batch*batch_size : (batch + 1)*batch_size] for batch in range(num_batches)]
-    imgbatches = [np.concatenate([np.load(join(sequence_dir, path)) for path in batch], axis=0) for batch in imgbatches]
-    outputs = [[np.zeros(1) for _ in range(io_shape_dict['num_outputs'])] for b in range(batch_size)]
-    
-    # --------------------------- NORMAL
-    # start = time()
-    # for batch_idx, batch in enumerate(imgbatches):
-
-    #     obuf_normal = accel.execute([batch])
-    #     # out_batches = []
-    #     for o, obuf in enumerate(obuf_normal):
-    #         # np.save(outputfile[o], obuf)
-    #         out = obuf.transpose(0, 3, 1, 2)
-    #         out *= muls[o]
-    #         out += adds[o]
-    #         for in_batch_idx, single_output in enumerate(out):
-    #             outputs[in_batch_idx][o] = single_output
-        
-    #     for outs_idx, outs in enumerate(outputs):
-    #         preds = yolov8_postproc(outs, 1, anchor_points, strides)[0]
-    #         for *xyxy, conf, cls in reversed(preds):
-    #             plot_one_box(xyxy, batch[outs_idx], color=(0, 0, 255), line_thickness=1)
-    #         cv2.imwrite('outputs/result{:03d}_bs{}.jpg'.format(batch_idx*batch_size + outs_idx, batch_size), batch[outs_idx])
-    # processing_time = time() - start
-    # print('fps:', (batch_size * num_batches) / processing_time)
-
-    # ----------------------- FULL ASYNC
-    start = time()
+    prev_batch = None
+    batch = None
+    imgbatches_names = [imgnames[batch*batch_size : (batch + 1)*batch_size] for batch in range(num_batches)]
     # additional first iter just for preproc, additional last iter just for postproc
-    num_iterations = len(imgbatches) + 2
+    num_iterations = len(imgbatches_names) + 2
+    start = time()
     for iteration in range(num_iterations):
-        if iteration >= 1:
+
+        if iteration != 0:
             accel.execute_on_buffers(asynch=True)
-            if iteration >= 2:
-                # postproc
-                out_batches = []
-                for o in range(io_shape_dict['num_outputs']):
-                    # np.save(outputfile[o], obuf)
-                    # accel.copy_output_data_from_device(accel.obuf_packed[o], ind=o)
-                    obuf_folded = accel.unpack_output(accel.obuf_packed[o], ind=o)
-                    obuf_normal = accel.unfold_output(obuf_folded, ind=o)
-                    out = obuf_normal.transpose(0, 3, 1, 2)
-                    out *= muls[o]
-                    out += adds[o]
-                    for in_batch_idx, single_output in enumerate(out):
-                        outputs[in_batch_idx][o] = single_output
-                for outs_idx, outs in enumerate(outputs):
-                    preds = yolov8_postproc(outs, 1, anchor_points, strides)[0]
-                    if args.save_images:
-                        for *xyxy, conf, cls in reversed(preds):
-                            plot_one_box(xyxy, imgbatches[iteration - 2][outs_idx], color=(0, 0, 255), line_thickness=1)
-                        cv2.imwrite('outputs/fullasync_result{:03d}_bs{}.jpg'.format((iteration - 2)*batch_size + outs_idx, batch_size), imgbatches[iteration - 2][outs_idx])
-        if iteration >= 1:
+            # postproc
+            if iteration != 1:
+                batch_detections = detector_driver.read_accel_and_postprocess()
+                if args.save_images:
+                    for outs_idx, detections in enumerate(batch_detections):
+                        vis_img = prev_batch[outs_idx]
+                        detections[:, :4] = scale_coords(io_shape_dict['ishape_normal'][0][1:3], detections[:, :4], vis_img.shape[:2])
+                        for *xyxy, conf, cls in reversed(detections):
+                            plot_one_box(xyxy, vis_img, color=(0, 0, 255), line_thickness=1)
+                        cv2.imwrite('outputs/class_result{:03d}.jpg'.format((iteration - 2)*batch_size + outs_idx), vis_img)
+        
+        # preproc
+        if args.save_images:
+            prev_batch = batch  # save for visualization
+        if iteration < num_iterations - 2:
+            batch = [cv2.imread(join(args.sequence_dir, path)) for path in imgbatches_names[iteration]]
+            detector_driver.preproc_and_write_accel(batch)
+            
+        if iteration != 0:
             accel.wait_until_finished()
             for o in range(io_shape_dict['num_outputs']):
-                # np.save(outputfile[o], obuf)
                 accel.copy_output_data_from_device(accel.obuf_packed[o], ind=o)
-        if iteration < num_iterations - 2:
-            # preproc
-            ibuf_normal = [imgbatches[iteration]]
-            for i in range(io_shape_dict['num_inputs']):
-                ibuf_folded = accel.fold_input(ibuf_normal[i], ind=i)
-                ibuf_packed = accel.pack_input(ibuf_folded, ind=i)
-                accel.copy_input_data_to_device(ibuf_packed, ind=i)
+
     processing_time = time() - start
     print('fps:', (batch_size * num_batches) / processing_time)
-
-    # ------------------------ HALF ASYNC
-    # start = time()
-    # # additional first iter just for preproc, additional last iter just for postproc
-    # num_iterations = len(imgbatches) + 1
-    # for iteration in range(num_iterations):
-        
-    #     # if not last
-    #     if iteration < num_iterations - 1:
-    #         # preproc
-    #         ibuf_normal = [imgbatches[iteration]]
-    #         for i in range(io_shape_dict['num_inputs']):
-    #             ibuf_folded = accel.fold_input(ibuf_normal[i], ind=i)
-    #             ibuf_packed = accel.pack_input(ibuf_folded, ind=i)
-    #             accel.copy_input_data_to_device(ibuf_packed, ind=i)
-    #         # run
-    #         accel.execute_on_buffers(asynch=True)
-
-    #     # if not first
-    #     if iteration > 0:
-    #         # postproc
-    #         out_batches = []
-    #         for o in range(io_shape_dict['num_outputs']):
-    #             # np.save(outputfile[o], obuf)
-    #             # accel.copy_output_data_from_device(accel.obuf_packed[o], ind=o)
-    #             obuf_folded = accel.unpack_output(accel.obuf_packed[o], ind=o)
-    #             obuf_normal = accel.unfold_output(obuf_folded, ind=o)
-    #             out = obuf_normal.transpose(0, 3, 1, 2)
-    #             out *= muls[o]
-    #             out += adds[o]
-    #             for in_batch_idx, single_output in enumerate(out):
-    #                 outputs[in_batch_idx][o] = single_output
-    #         for outs_idx, outs in enumerate(outputs):
-    #             preds = yolov8_postproc(outs, 1, anchor_points, strides)[0]
-    #             if args.save_images:
-    #                 for *xyxy, conf, cls in reversed(preds):
-    #                     plot_one_box(xyxy, imgbatches[iteration - 1][outs_idx], color=(0, 0, 255), line_thickness=1)
-    #                 cv2.imwrite('outputs/async_result{:03d}_bs{}.jpg'.format((iteration - 1)*batch_size + outs_idx, batch_size), imgbatches[iteration - 1][outs_idx])
-    
-    #     if iteration < num_iterations - 1:
-    #         # wait
-    #         accel.wait_until_finished()
-    #         for o in range(io_shape_dict['num_outputs']):
-    #             # np.save(outputfile[o], obuf)
-    #             accel.copy_output_data_from_device(accel.obuf_packed[o], ind=o)
-       
-    # processing_time = time() - start
-    # print('fps:', (batch_size * num_batches) / processing_time)
-
-
-    # # ----------------------- FULL ASYNC CLASS
-    # start = time()
-    # # additional first iter just for preproc, additional last iter just for postproc
-    # imgnames = os.listdir('img1')
-    # imgnames.sort()
-    # imgbatches_names = [imgnames[batch*batch_size : (batch + 1)*batch_size] for batch in range(num_batches)]
-    # num_iterations = len(imgbatches_names) + 2
-    # for iteration in range(num_iterations):
-    #     if iteration != 0:
-    #         accel.execute_on_buffers(asynch=True)
-    #         if iteration != 1:
-    #             # postproc
-    #             batch_detections = detector_driver.read_accel_and_postprocess()
-    #             if args.save_images:
-    #                 for outs_idx, detections in enumerate(batch_detections):
-                        
-    #                     vis_img = cv2.imread(join('img1', imgbatches_names[iteration - 2][outs_idx]))
-    #                     detections[:, :4] = scale_coords(io_shape_dict['ishape_normal'][0][1:3], detections[:, :4], vis_img.shape[:2])
-    #                     for *xyxy, conf, cls in reversed(detections):
-    #                         plot_one_box(xyxy, vis_img, color=(0, 0, 255), line_thickness=1)
-    #                     cv2.imwrite('outputs/result{:03d}.jpg'.format((iteration - 2)*batch_size + outs_idx), vis_img)
-    #     if iteration < num_iterations - 2:
-    #         # preproc
-    #         # batch = np.concatenate([np.load(join(sequence_dir, path)) for path in imgbatches_names[iteration]], axis=0)
-    #         batch = [cv2.imread(join('img1', path)) for path in imgbatches_names[iteration]]
-    #         detector_driver.preproc_and_write_accel(batch)
-            
-    #     if iteration != 0:
-    #         accel.wait_until_finished()
-    # processing_time = time() - start
-    # print('fps:', (batch_size * num_batches) / processing_time)
