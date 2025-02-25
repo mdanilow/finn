@@ -147,11 +147,7 @@ BUILD_DIR = os.environ["FINN_BUILD_DIR"]
 OUTPUT_DIR = join(BUILD_DIR, "yolov8_output_dir")
 BOARD = "U55C"
 model_file = "quantyolov8_4w4a_comact_tidy.onnx"
-<<<<<<< HEAD
-# model_file = join(BUILD_DIR, 'yolov8_output_dir_old', "intermediate_models", "step_target_fps_parallelization.onnx")
-=======
 # model_file = join(OUTPUT_DIR, "intermediate_models", "step_hw_ipgen.onnx")
->>>>>>> b16fac964ca97ae4c30bef3468df08e6cf7d1865
 folding_config_file = None
 specialize_layers_config_file = None
 
