@@ -28,6 +28,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+from os.path import join
 import subprocess
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -35,6 +36,7 @@ from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from shutil import copy
+import math
 
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
@@ -64,7 +66,7 @@ def collect_ip_dirs(model, ipstitch_path):
         ), """The directory that should
         contain the generated ip blocks doesn't exist."""
         ip_dirs += [ip_dir_value]
-        if node.op_type.startswith("MVAU") or node.op_type == "Thresholding_hls":
+        if node.op_type.startswith("MVAU") or node.op_type.startswith("VVAU") or node.op_type == "Thresholding_hls":
             if node_inst.get_nodeattr("mem_mode") == "internal_decoupled":
                 need_memstreamer = True
     ip_dirs += [ipstitch_path + "/ip"]
@@ -88,15 +90,19 @@ class MakeZYNQProject(Transformation):
     value.
     """
 
-    def __init__(self, platform, period_ns, enable_debug=False):
+    def __init__(self, platform, period_ns, enable_debug=False, tcl_only=False):
         super().__init__()
         self.platform = platform
         self.period_ns = period_ns
         self.enable_debug = 1 if enable_debug else 0
+        self.tcl_only = tcl_only
 
     def apply(self, model):
+
         # create a config file and empty list of xo files
+        INTERCONNECT_S_INTERFACES = 16
         config = []
+        ip_repo_paths = []
         idma_idx = 0
         odma_idx = 0
         aximm_idx = 0
@@ -118,15 +124,7 @@ class MakeZYNQProject(Transformation):
             if vivado_stitch_vlnv is None:
                 raise Exception("No vlnv found for %s, apply CreateStitchedIP first." % node.name)
 
-            ip_dirs = ["list"]
-            ip_dirs += collect_ip_dirs(kernel_model, ipstitch_path)
-            ip_dirs_str = "[%s]" % (" ".join(ip_dirs))
-            config.append(
-                "set_property ip_repo_paths "
-                "[concat [get_property ip_repo_paths [current_project]] %s] "
-                "[current_project]" % ip_dirs_str
-            )
-            config.append("update_ip_catalog -rebuild -scan_changes")
+            ip_repo_paths += collect_ip_dirs(kernel_model, ipstitch_path)
 
             ifnames = eval(kernel_model.get_metadata_prop("vivado_stitch_ifnames"))
 
@@ -160,8 +158,8 @@ class MakeZYNQProject(Transformation):
                 )
                 config.append(
                     "connect_bd_intf_net [get_bd_intf_pins %s/m_axi_gmem0] "
-                    "[get_bd_intf_pins smartconnect_0/S%02d_AXI]"
-                    % (instance_names[node.name], aximm_idx)
+                    "[get_bd_intf_pins axi_interconnect_%d/S%02d_AXI]"
+                    % (instance_names[node.name], 1 + aximm_idx // INTERCONNECT_S_INTERFACES, aximm_idx % INTERCONNECT_S_INTERFACES)
                 )
                 assert len(ifnames["axilite"]) == 1, "Must have 1 AXI lite interface on IODMA nodes"
                 axilite_intf_name = ifnames["axilite"][0]
@@ -200,11 +198,11 @@ class MakeZYNQProject(Transformation):
 
             config.append(
                 "connect_bd_net [get_bd_pins %s/ap_clk] "
-                "[get_bd_pins smartconnect_0/aclk]" % instance_names[node.name]
+                "[get_bd_pins axi_interconnect_0/ACLK]" % instance_names[node.name]
             )
             config.append(
                 "connect_bd_net [get_bd_pins %s/ap_rst_n] "
-                "[get_bd_pins smartconnect_0/aresetn]" % instance_names[node.name]
+                "[get_bd_pins axi_interconnect_0/ARESETN]" % instance_names[node.name]
             )
             # connect streams
             if producer is not None:
@@ -231,11 +229,12 @@ class MakeZYNQProject(Transformation):
 
         # create a TCL recipe for the project
         ipcfg = vivado_pynq_proj_dir + "/ip_config.tcl"
+        ip_repo_paths_cmd = "set_property ip_repo_paths {{{}}} [current_project]".format(" ".join(ip_repo_paths))
+        config = [ip_repo_paths_cmd, "update_ip_catalog -rebuild -scan_changes"] + config
         config = "\n".join(config) + "\n"
         with open(ipcfg, "w") as f:
             f.write(
-                templates.custom_zynq_shell_template
-                % (
+                templates.generate_zynqus_template(
                     fclk_mhz,
                     axilite_idx,
                     aximm_idx,
@@ -254,6 +253,10 @@ class MakeZYNQProject(Transformation):
             f.write("cd {}\n".format(vivado_pynq_proj_dir))
             f.write("vivado -mode batch -source %s\n" % ipcfg)
             f.write("cd {}\n".format(working_dir))
+        
+        if self.tcl_only:
+            print('Tcl script generated')
+            return (model, False)
 
         # call the synthesis script
         bash_command = ["bash", synth_project_sh]
@@ -343,6 +346,8 @@ class ZynqBuild(Transformation):
             )
             kernel_model.set_metadata_prop("platform", "zynq-iodma")
             kernel_model.save(dataflow_model_filename)
+        model.set_metadata_prop("platform", "zynq-iodma")
+        model.save(join(self.partition_model_dir, "final_model.onnx"))
         # Assemble design from IPs
         model = model.transform(
             MakeZYNQProject(self.platform, self.period_ns, enable_debug=self.enable_debug)
