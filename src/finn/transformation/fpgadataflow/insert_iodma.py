@@ -247,7 +247,7 @@ class InsertIODMA(Transformation):
                 model.graph.node.insert(0, dma_node)
                 # expand inFIFODepths for new second input of node
                 infifo_depth = fc_inst.get_nodeattr("inFIFODepths")
-                infifo_depth.append(8)
+                infifo_depth.append(1)
                 fc_inst.set_nodeattr("inFIFODepths", infifo_depth)
                 modified = True
         if modified:
