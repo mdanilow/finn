@@ -418,13 +418,18 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
 
     target_cycles_per_frame = cfg._resolve_cycles_per_frame()
     if target_cycles_per_frame is not None:
-        model = model.transform(
-            SetFolding(
-                target_cycles_per_frame,
-                mvau_wwidth_max=cfg.mvau_wwidth_max,
-                two_pass_relaxation=cfg.folding_two_pass_relaxation,
-            )
+        print('TARGET CYCLES:', target_cycles_per_frame)
+        model = model.transform(GiveUniqueNodeNames())
+        folding_trf = SetFolding(
+            target_cycles_per_frame,
+            mvau_wwidth_max=cfg.mvau_wwidth_max,
+            two_pass_relaxation=cfg.folding_two_pass_relaxation,
         )
+        model = model.transform(folding_trf)
+        report_dir = cfg.output_dir + "/report"
+        os.makedirs(report_dir, exist_ok=True)
+        with open(report_dir + "/possible_foldings.json", "w") as f:
+            json.dump(folding_trf.possible_foldings, f, indent=2)
         # extract the suggested configuration and save it as json
         hw_attrs = [
             "PE",

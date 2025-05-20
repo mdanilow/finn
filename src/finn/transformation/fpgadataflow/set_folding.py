@@ -30,6 +30,7 @@
 import numpy as np
 import warnings
 import functools
+from itertools import product
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveUniqueNodeNames
@@ -91,11 +92,13 @@ class SetFolding(Transformation):
       unfolded before SIMD is increased
     """
 
-    def __init__(self, target_cycles_per_frame=1000, mvau_wwidth_max=36, two_pass_relaxation=True):
+    def __init__(self, target_cycles_per_frame=1000, mvau_wwidth_max=36, two_pass_relaxation=True, macs_optimization=False):
         super().__init__()
         self.target_cycles_per_frame = target_cycles_per_frame
         self.mvau_wwidth_max = mvau_wwidth_max
         self.two_pass_relaxation = two_pass_relaxation
+        self.possible_foldings = {}
+        self.macs_optimization = macs_optimization
 
     def optimize_attribute_val(self, node_inst, max_val, attr_name):
         node_inst.set_nodeattr(attr_name, 1)
@@ -106,7 +109,65 @@ class SetFolding(Transformation):
                 # finish if target met
                 break
 
+    def eval_multi_attribute_vals(self, node_inst, max_vals, attr_names):
+        old_attrs = {}
+        for attr_name in attr_names:
+            old_attrs[attr_name] = node_inst.get_nodeattr(attr_name)
+        # get all possible combinations
+        all_combinations = list(product(*[divisors(max_val) for max_val in max_vals]))
+        node_possible_foldings = []
+        for comb in all_combinations:
+            for i, attr_name in enumerate(attr_names):
+                node_inst.set_nodeattr(attr_name, comb[i])
+            cyc = node_inst.get_exp_cycles()
+            node_possible_foldings.append((comb, cyc))
+        node_possible_foldings.sort(key=(lambda x: x[1]))
+        if not (node_inst.onnx_node.name in self.possible_foldings.keys()):
+            self.possible_foldings[node_inst.onnx_node.name] = {
+                str(attr_names): node_possible_foldings
+            }
+        # restore ols attributes
+        for attr_name in attr_names:
+            node_inst.set_nodeattr(attr_name, old_attrs[attr_name])
+        return self.possible_foldings[node_inst.onnx_node.name]
+    
+    def optimize_macs(self, model):
+
+        for node in model.graph.node:
+            node_inst = getCustomOp(node)
+            if node.op_type in ["MVAU_hls", "MVAU_rtl"]:
+                cycles_to_beat = node_inst.get_exp_cycles()
+                max_simd = node_inst.get_nodeattr("MW")
+                max_pe = node_inst.get_nodeattr("MH")
+                node_possible_foldings = self.eval_multi_attribute_vals(node_inst, [max_pe, max_simd], ["PE", "SIMD"])["['PE', 'SIMD']"]
+                best_config = None
+                best_cycles = cycles_to_beat
+                # assume the possible foldings to be sorted by cycles
+                for config, cycles in node_possible_foldings:
+                    if cycles > cycles_to_beat and cycles <= self.target_cycles_per_frame:
+                        pe, simd = config
+                        if node_inst.get_input_datatype(1).bitwidth() * simd <= self.mvau_wwidth_max:
+                            if cycles > best_cycles:
+                                best_config = config
+                                best_cycles = cycles
+                            # when there is another option with the same num of cycles, choose the one with smaller PE
+                            elif cycles == best_cycles:
+                                best_config = config if pe < best_config[0] else best_config
+
+                if best_config is not None:
+                    print("Found better folding for " + node_inst.onnx_node.name + " with " + str(best_cycles) + " cycles.")
+                    node_inst.set_nodeattr("PE", best_config[0])
+                    node_inst.set_nodeattr("SIMD", best_config[1])
+                
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(AnnotateCycles())
+        return (model, False)
+
     def apply(self, model):
+
+        if self.macs_optimization:
+            return self.optimize_macs(model)
+
         graph = model.graph
         # these ops use PE parallelism, up to a max value of NumChannels
         pe_ops = [
@@ -142,6 +203,7 @@ class SetFolding(Transformation):
             if op_type in ["MVAU_hls", "MVAU_rtl"]:
                 max_simd = node_inst.get_nodeattr("MW")
                 max_pe = node_inst.get_nodeattr("MH")
+                self.eval_multi_attribute_vals(node_inst, [max_pe, max_simd], ["PE", "SIMD"])
                 node_inst.set_nodeattr("PE", 1)
                 node_inst.set_nodeattr("SIMD", 1)
                 # increase SIMD until either we meet
@@ -260,6 +322,7 @@ class SetFolding(Transformation):
                         target_cycles_per_frame=perf_dict["max_cycles"],
                         mvau_wwidth_max=self.mvau_wwidth_max,
                         two_pass_relaxation=False,
+                        macs_optimization=True,
                     )
                 )
 
