@@ -430,6 +430,8 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
         os.makedirs(report_dir, exist_ok=True)
         with open(report_dir + "/possible_foldings.json", "w") as f:
             json.dump(folding_trf.possible_foldings, f, indent=2)
+        with open(report_dir + "/common_cycles.json", "w") as f:
+            json.dump(folding_trf.common_cycles, f, indent=2)
         # extract the suggested configuration and save it as json
         hw_attrs = [
             "PE",

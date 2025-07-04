@@ -105,7 +105,7 @@ class SetFolding(Transformation):
         for val in divisors(max_val):
             node_inst.set_nodeattr(attr_name, val)
             cyc = node_inst.get_exp_cycles()
-            if cyc < self.target_cycles_per_frame:
+            if cyc <= self.target_cycles_per_frame:
                 # finish if target met
                 break
 
@@ -162,9 +162,32 @@ class SetFolding(Transformation):
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(AnnotateCycles())
         return (model, False)
+    
+    def find_common_mac_cycles(self):
+        macs_count = 0
+        num_macs_for_cycles = {}
+        # self.common_cycles = []
+        for node, foldings in self.possible_foldings.items():
+            if "VAU" in node:
+                # print(node)
+                handled_cycles = []
+                macs_count +=1
+                foldings = foldings["['PE', 'SIMD']"]
+                for config, cycles in foldings:
+                    # print("\t", config, cycles)
+                    if cycles in num_macs_for_cycles:
+                        if cycles not in handled_cycles:
+                            num_macs_for_cycles[cycles] += 1
+                    else:
+                        num_macs_for_cycles[cycles] = 1
+                    handled_cycles.append(cycles)
+        num_macs_for_cycles['macs_count'] = macs_count
+        self.common_cycles = num_macs_for_cycles
+        # for cycles, num_macs in num_macs_for_cycles.items():
+        #     if num_macs == macs_count:
+        #         self.common_cycles.append(cycles)
 
     def apply(self, model):
-
         if self.macs_optimization:
             return self.optimize_macs(model)
 
@@ -213,7 +236,7 @@ class SetFolding(Transformation):
                     prev_simd_val = node_inst.get_nodeattr("SIMD")
                     node_inst.set_nodeattr("SIMD", simd_val)
                     cyc = node_inst.get_exp_cycles()
-                    if cyc < self.target_cycles_per_frame:
+                    if cyc <= self.target_cycles_per_frame:
                         # finish if target met
                         break
                     if (
@@ -307,7 +330,7 @@ class SetFolding(Transformation):
         model = model.transform(AnnotateCycles())
         if self.two_pass_relaxation:
             perf_dict = model.analysis(dataflow_performance)
-            if perf_dict["max_cycles"] > self.target_cycles_per_frame:
+            if perf_dict["max_cycles"] >= self.target_cycles_per_frame:
                 # run again, but with lower target (that we managed) -- this
                 # may be coming from a single node's constraints, but we want
                 # to balance the entire dataflow pipeline instead
@@ -325,5 +348,6 @@ class SetFolding(Transformation):
                         macs_optimization=True,
                     )
                 )
+        self.find_common_mac_cycles()
 
         return (model, False)
