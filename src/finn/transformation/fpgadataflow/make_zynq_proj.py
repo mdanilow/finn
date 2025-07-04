@@ -328,6 +328,7 @@ class ZynqBuild(Transformation):
             model = model.transform(trn)
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
+        model.save(join(self.partition_model_dir, "prepared_model.onnx"))
         # Build each kernel individually
         sdp_nodes = model.get_nodes_by_op_type("StreamingDataflowPartition")
         for sdp_node in sdp_nodes:
