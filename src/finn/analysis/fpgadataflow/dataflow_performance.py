@@ -30,6 +30,7 @@
 from qonnx.custom_op.registry import getCustomOp
 
 from finn.util.fpgadataflow import is_hls_node, is_rtl_node
+from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 
 
 def dataflow_performance(model):
@@ -76,3 +77,22 @@ def dataflow_performance(model):
         "max_cycles": int(max_cycles),
         "max_cycles_node_name": max_node_name,
     }
+
+
+def mac_efficiency(model):
+    model = model.transform(AnnotateCycles())
+    network_performance = model.analysis(dataflow_performance)
+    max_cycles = network_performance["max_cycles"]
+    total_macs = 0
+    macs_utilized = 0
+    for node in model.graph.node:
+        node_inst = getCustomOp(node)
+        if "VAU" in node.op_type:
+            pe = node_inst.get_nodeattr("PE")
+            simd = node_inst.get_nodeattr("SIMD")
+            macs = pe * simd
+            total_macs += macs
+            node_cycles = int(node_inst.get_nodeattr("cycles_estimate"))
+            macs_utilized += (macs * node_cycles / max_cycles)
+    mac_efficiency = 100 * macs_utilized / total_macs
+    return mac_efficiency

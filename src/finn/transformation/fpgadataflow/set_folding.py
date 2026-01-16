@@ -92,13 +92,21 @@ class SetFolding(Transformation):
       unfolded before SIMD is increased
     """
 
-    def __init__(self, target_cycles_per_frame=1000, mvau_wwidth_max=36, two_pass_relaxation=True, macs_optimization=False):
+    def __init__(self,
+                 target_cycles_per_frame=1000,
+                 mvau_wwidth_max=36,
+                 two_pass_relaxation=True,
+                 macs_optimization=False,
+                 analyze_common_cycles=False,
+                 mac_efficiency_computation=False):
         super().__init__()
         self.target_cycles_per_frame = target_cycles_per_frame
         self.mvau_wwidth_max = mvau_wwidth_max
         self.two_pass_relaxation = two_pass_relaxation
         self.possible_foldings = {}
         self.macs_optimization = macs_optimization
+        self.analyze_common_cycles = analyze_common_cycles
+        self.mac_efficiency_computation = mac_efficiency_computation
 
     def optimize_attribute_val(self, node_inst, max_val, attr_name):
         node_inst.set_nodeattr(attr_name, 1)
@@ -155,13 +163,13 @@ class SetFolding(Transformation):
                                 best_config = config if pe < best_config[0] else best_config
 
                 if best_config is not None:
-                    print("Found better folding for " + node_inst.onnx_node.name + " with " + str(best_cycles) + " cycles.")
+                    # print("Found better folding for " + node_inst.onnx_node.name + " with " + str(best_cycles) + " cycles.")
                     node_inst.set_nodeattr("PE", best_config[0])
                     node_inst.set_nodeattr("SIMD", best_config[1])
                 
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(AnnotateCycles())
-        return (model, False)
+        return model
     
     def find_common_mac_cycles(self):
         macs_count = 0
@@ -187,9 +195,24 @@ class SetFolding(Transformation):
         #     if num_macs == macs_count:
         #         self.common_cycles.append(cycles)
 
+    def compute_mac_efficiency(self, model):
+        model = model.transform(AnnotateCycles())
+        network_performance = model.analysis(dataflow_performance)
+        max_cycles = network_performance["max_cycles"]
+        total_macs = 0
+        macs_utilized = 0
+        for node in model.graph.node:
+            node_inst = getCustomOp(node)
+            if "VAU" in node.op_type:
+                pe = node_inst.get_nodeattr("PE")
+                simd = node_inst.get_nodeattr("SIMD")
+                macs = pe * simd
+                total_macs += macs
+                node_cycles = int(node_inst.get_nodeattr("cycles_estimate"))
+                macs_utilized += (macs * node_cycles / max_cycles)
+        self.mac_efficiency = 100 * macs_utilized / total_macs
+
     def apply(self, model):
-        if self.macs_optimization:
-            return self.optimize_macs(model)
 
         graph = model.graph
         # these ops use PE parallelism, up to a max value of NumChannels
@@ -318,7 +341,7 @@ class SetFolding(Transformation):
                     for simd_val in common_divisors(channels_per_stream):
                         node_inst.set_nodeattr("SIMD", simd_val)
                         cyc = node_inst.get_exp_cycles()
-                        if cyc < self.target_cycles_per_frame:
+                        if cyc <= self.target_cycles_per_frame:
                             break
                 else:
                     max_simd = node_inst.get_nodeattr("NumChannels")
@@ -326,6 +349,8 @@ class SetFolding(Transformation):
             else:
                 warnings.warn("SetFolding doesn't know how to handle op_type " + op_type)
 
+        if self.macs_optimization:
+            model = self.optimize_macs(model)
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(AnnotateCycles())
         if self.two_pass_relaxation:
@@ -340,6 +365,7 @@ class SetFolding(Transformation):
                     "Node %s is bottleneck with %d cycles, running second pass"
                     % (perf_dict["max_cycles_node_name"], perf_dict["max_cycles"])
                 )
+                self.target_cycles_per_frame = perf_dict["max_cycles"]
                 model = model.transform(
                     SetFolding(
                         target_cycles_per_frame=perf_dict["max_cycles"],
@@ -348,6 +374,9 @@ class SetFolding(Transformation):
                         macs_optimization=True,
                     )
                 )
-        self.find_common_mac_cycles()
+        if self.analyze_common_cycles:
+            self.find_common_mac_cycles()
+        if self.mac_efficiency_computation:
+            self.compute_mac_efficiency(model)
 
         return (model, False)

@@ -189,6 +189,8 @@ class DataflowBuildConfig:
     #: that will override the target_fps setting here.
     target_fps: Optional[int] = None
 
+    analyze_mac_efficiency: Optional[bool] = False
+
     #: (Optional) Use two-pass relaxation for folding, only relevant if target_fps
     #: is set. If enabled, parallelization will internally run a second time if the
     #: target cycles from the first pass could not be achieved, instead using the

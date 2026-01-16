@@ -56,7 +56,7 @@ from shutil import copy
 
 import finn.transformation.fpgadataflow.convert_to_hw_layers as to_hw
 import finn.transformation.streamline.absorb as absorb
-from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
+from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance, mac_efficiency
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.analysis.fpgadataflow.op_and_param_counts import (
@@ -416,22 +416,28 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
     auto_folding_config.json under the outputs, which can serve as a basis for
     customizing the folding factors further."""
 
+    def cycles_to_fps(cycles, synth_clk_period_ns):
+        n_clock_cycles_per_sec = 10**9 / synth_clk_period_ns
+        fps = n_clock_cycles_per_sec / cycles
+        return fps
+
     target_cycles_per_frame = cfg._resolve_cycles_per_frame()
     if target_cycles_per_frame is not None:
         print('TARGET CYCLES:', target_cycles_per_frame)
+        target_fps_range = (cfg.target_fps / 4,
+                            cfg.target_fps * 2
+                            )
+        print('FPS RANGE:', target_fps_range)
         model = model.transform(GiveUniqueNodeNames())
         folding_trf = SetFolding(
             target_cycles_per_frame,
             mvau_wwidth_max=cfg.mvau_wwidth_max,
             two_pass_relaxation=cfg.folding_two_pass_relaxation,
+            macs_optimization=True,
+            analyze_common_cycles=True
         )
         model = model.transform(folding_trf)
-        report_dir = cfg.output_dir + "/report"
-        os.makedirs(report_dir, exist_ok=True)
-        with open(report_dir + "/possible_foldings.json", "w") as f:
-            json.dump(folding_trf.possible_foldings, f, indent=2)
-        with open(report_dir + "/common_cycles.json", "w") as f:
-            json.dump(folding_trf.common_cycles, f, indent=2)
+
         # extract the suggested configuration and save it as json
         hw_attrs = [
             "PE",
@@ -445,6 +451,47 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
             "depth_trigger_bram",
         ]
         extract_model_config_to_json(model, cfg.output_dir + "/auto_folding_config.json", hw_attrs)
+
+        # prepare reports
+        report_dir = cfg.output_dir + "/report"
+        os.makedirs(report_dir, exist_ok=True)
+        with open(report_dir + "/possible_foldings.json", "w") as f:
+            json.dump(folding_trf.possible_foldings, f, indent=2)
+        with open(report_dir + "/common_cycles.json", "w") as f:
+            json.dump(folding_trf.common_cycles, f, indent=2)
+        if cfg.analyze_mac_efficiency:
+            ordered_common_cycles = {}
+            ordered_keys = list(folding_trf.common_cycles.keys())
+            ordered_keys.remove("macs_count")
+            ordered_keys.sort()
+            for key in ordered_keys:
+                model_for_analysis = deepcopy(model)
+                cycles_fps_pair = (key, round(cycles_to_fps(key, cfg.synth_clk_period_ns), 1))
+                if cycles_fps_pair[1] >= target_fps_range[0] and cycles_fps_pair[1] <= target_fps_range[1]:
+                    folding_trf = SetFolding(
+                        cycles_fps_pair[0],
+                        mvau_wwidth_max=cfg.mvau_wwidth_max,
+                        two_pass_relaxation=cfg.folding_two_pass_relaxation,
+                        macs_optimization=True,
+                        analyze_common_cycles=False,
+                        mac_efficiency_computation=True
+                    )
+                    model_for_analysis = model_for_analysis.transform(folding_trf)
+                    obtained_cycles = folding_trf.target_cycles_per_frame
+                    obtained_fps = cycles_to_fps(obtained_cycles, cfg.synth_clk_period_ns)
+                    # ordered_common_cycles[cycles_fps_pair[0]] = str(cycles_fps_pair[1]) + "fps, " + str(round(folding_trf.mac_efficiency, 2)) + "%"
+                    ordered_common_cycles[obtained_cycles] = "({} {} {})fps, {}%".format(
+                        round(obtained_fps, 1),                         # size 640x640
+                        round(obtained_fps * 4096 / 2304, 1), # size 480x480
+                        round(obtained_fps * 4096 / 1024, 1), # size 320x320
+                        round(folding_trf.mac_efficiency, 2)
+                    )
+                    target_foldings_dir = cfg.output_dir + "/report/target_foldings"
+                    os.makedirs(target_foldings_dir, exist_ok=True)
+                    extract_model_config_to_json(model_for_analysis, target_foldings_dir + "/{}.json".format(cycles_fps_pair[0]), hw_attrs)
+                
+            with open(report_dir + "/mac_efficiency_analysis.json", "w") as f:
+                json.dump(ordered_common_cycles, f, indent=2)
 
     return model
 
@@ -500,6 +547,7 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
             estimate_network_performance["critical_path_cycles"] * cfg.synth_clk_period_ns
         )
         estimate_network_performance["estimated_latency_ns"] = est_latency_ns
+        estimate_network_performance["mac_efficiency"] = model.analysis(mac_efficiency)
         with open(report_dir + "/estimate_network_performance.json", "w") as f:
             json.dump(estimate_network_performance, f, indent=2)
     return model
