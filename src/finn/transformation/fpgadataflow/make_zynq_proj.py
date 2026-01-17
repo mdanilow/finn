@@ -35,6 +35,7 @@ from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from shutil import copy
+from os.path import join
 
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,

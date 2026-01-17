@@ -148,6 +148,10 @@ class SetFolding(Transformation):
                 max_simd = node_inst.get_nodeattr("MW")
                 max_pe = node_inst.get_nodeattr("MH")
                 node_possible_foldings = self.eval_multi_attribute_vals(node_inst, [max_pe, max_simd], ["PE", "SIMD"])["['PE', 'SIMD']"]
+                if node.op_type == "MVAU_hls":
+                    for comb, cyc in node_possible_foldings:
+                        if comb[1] < max_simd / 1024:
+                            node_possible_foldings.remove((comb, cyc))
                 best_config = None
                 best_cycles = cycles_to_beat
                 # assume the possible foldings to be sorted by cycles
@@ -259,7 +263,7 @@ class SetFolding(Transformation):
                     prev_simd_val = node_inst.get_nodeattr("SIMD")
                     node_inst.set_nodeattr("SIMD", simd_val)
                     cyc = node_inst.get_exp_cycles()
-                    if cyc <= self.target_cycles_per_frame:
+                    if cyc <= self.target_cycles_per_frame and simd_val >= max_simd / 1024:
                         # finish if target met
                         break
                     if (
